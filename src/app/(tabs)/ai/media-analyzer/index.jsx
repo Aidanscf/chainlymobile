@@ -14,7 +14,7 @@ import * as ImagePicker from "expo-image-picker";
 import { Image } from "expo-image";
 import { useVideoPlayer, VideoView } from "expo-video";
 import * as Haptics from "expo-haptics";
-import { Video, Camera, Sparkles } from "lucide-react-native";
+import { Video, Camera, Sparkles, Image as ImageIcon } from "lucide-react-native";
 
 import AppCard from "@/components/AppCard";
 import AppButton from "@/components/AppButton";
@@ -24,6 +24,8 @@ import ScreenHeader from "@/components/layout/ScreenHeader";
 
 const SAMPLE_VIDEO =
   "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4";
+const SAMPLE_IMAGE =
+  "https://images.unsplash.com/photo-1576435728678-68d0fbf94e91?w=1200&h=800&fit=crop";
 
 export default function AIMediaAnalyzerUploadScreen() {
   const insets = useSafeAreaInsets();
@@ -36,6 +38,7 @@ export default function AIMediaAnalyzerUploadScreen() {
   const [media, setMedia] = useState(null);
 
   const isVideo = media?.mediaType === "video";
+  const isImage = media?.mediaType === "image";
 
   // Avoid passing null into the video hook (some runtimes expect a string source).
   // We only render the VideoView when isVideo is true.
@@ -96,12 +99,96 @@ export default function AIMediaAnalyzerUploadScreen() {
         mediaType: "video",
         fileSize: asset.fileSize ?? null,
         duration: asset.duration ?? null,
+        mimeType: asset.mimeType || "video/mp4",
       });
     } catch (e) {
       console.error(e);
       setError(String(e?.message || "Could not choose video"));
     }
   }, [ensureLibraryPerms]);
+
+  const choosePhoto = useCallback(async () => {
+    setError(null);
+    try {
+      await ensureLibraryPerms();
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        quality: 1,
+      });
+
+      if (result.canceled) {
+        return;
+      }
+
+      const asset = result.assets?.[0];
+      if (!asset?.uri) {
+        throw new Error("No photo selected");
+      }
+
+      setMedia({
+        uri: asset.uri,
+        mediaType: "image",
+        fileSize: asset.fileSize ?? null,
+        duration: null,
+        mimeType: asset.mimeType || "image/jpeg",
+      });
+    } catch (e) {
+      console.error(e);
+      setError(String(e?.message || "Could not choose photo"));
+    }
+  }, [ensureLibraryPerms]);
+
+  const takePhoto = useCallback(async () => {
+    setError(null);
+    try {
+      await ensureCameraPerms();
+
+      const result = await ImagePicker.launchCameraAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        quality: 1,
+      });
+
+      if (result.canceled) {
+        return;
+      }
+
+      const asset = result.assets?.[0];
+      if (!asset?.uri) {
+        throw new Error("No photo captured");
+      }
+
+      setMedia({
+        uri: asset.uri,
+        mediaType: "image",
+        fileSize: asset.fileSize ?? null,
+        duration: null,
+        mimeType: asset.mimeType || "image/jpeg",
+      });
+    } catch (e) {
+      console.error(e);
+      setError(String(e?.message || "Could not take photo"));
+    }
+  }, [ensureCameraPerms]);
+
+  const useSamplePhoto = useCallback(async () => {
+    setError(null);
+    try {
+      if (Platform.OS !== "web") {
+        await Haptics.selectionAsync();
+      }
+    } catch (e) {
+      console.error(e);
+    }
+
+    setMedia({
+      uri: SAMPLE_IMAGE,
+      mediaType: "image",
+      fileSize: null,
+      duration: null,
+      isSample: true,
+    });
+  }, []);
 
   const useSample = useCallback(async () => {
     setError(null);
@@ -145,6 +232,7 @@ export default function AIMediaAnalyzerUploadScreen() {
       setDraft({
         mediaUri: media.uri,
         mediaType: media.mediaType,
+        mimeType: media.mimeType || null,
       });
 
       if (Platform.OS !== "web") {
@@ -158,7 +246,7 @@ export default function AIMediaAnalyzerUploadScreen() {
     }
   }, [clearDraft, media, router, setDraft]);
 
-  const previewTitle = "Video selected";
+  const previewTitle = isImage ? "Photo selected" : "Video selected";
 
   return (
     <View style={styles.container}>
@@ -173,28 +261,54 @@ export default function AIMediaAnalyzerUploadScreen() {
       >
         <Text style={styles.title}>Analyzer Coach</Text>
         <Text style={styles.subtitle}>
-          Upload a video clip — I'll grade the moment and give you drills.
+          Upload a photo or video clip — I'll grade the moment and give you
+          drills.
         </Text>
 
         <AppCard style={styles.heroCard}>
           <View style={styles.heroBadge}>
             <Sparkles size={18} color={colors.primary} strokeWidth={2.5} />
-            <Text style={styles.heroBadgeText}>Video Coaching</Text>
+            <Text style={styles.heroBadgeText}>Photo & Video Coaching</Text>
           </View>
 
           <Text style={styles.heroHelper}>
-            Best results: 3–10 seconds, rider in frame, clear landing/turn.
+            Photos: rider in frame, side or 3/4 view. Videos: 3–10 seconds,
+            clear landing or turn.
           </Text>
 
           <View style={{ marginTop: spacing.xl }}>
             <AppButton
-              title="Choose Video"
-              onPress={chooseVideo}
+              title="Choose Photo"
+              onPress={choosePhoto}
               variant="primary"
             />
           </View>
 
+          <View style={{ marginTop: spacing.md }}>
+            <AppButton
+              title="Take Photo"
+              onPress={takePhoto}
+              variant="secondary"
+            />
+          </View>
+
+          <View style={{ marginTop: spacing.md }}>
+            <AppButton
+              title="Choose Video"
+              onPress={chooseVideo}
+              variant="secondary"
+            />
+          </View>
+
           <View style={{ marginTop: spacing.lg }}>
+            <AppButton
+              title="Use Sample Photo"
+              onPress={useSamplePhoto}
+              variant="ghost"
+            />
+          </View>
+
+          <View style={{ marginTop: spacing.sm }}>
             <AppButton
               title="Use Sample Clip"
               onPress={useSample}
@@ -214,13 +328,27 @@ export default function AIMediaAnalyzerUploadScreen() {
             <View style={styles.previewWrap}>
               <View style={styles.previewTopRow}>
                 <View style={styles.previewIcon}>
-                  <Video size={18} color={colors.primary} strokeWidth={2.5} />
+                  {isImage ? (
+                    <ImageIcon
+                      size={18}
+                      color={colors.primary}
+                      strokeWidth={2.5}
+                    />
+                  ) : (
+                    <Video size={18} color={colors.primary} strokeWidth={2.5} />
+                  )}
                 </View>
                 <Text style={styles.previewTitle}>{previewTitle}</Text>
               </View>
 
               <View style={styles.previewMediaFrame}>
-                {isVideo && player ? (
+                {isImage && media?.uri ? (
+                  <Image
+                    source={{ uri: media.uri }}
+                    style={{ width: "100%", height: "100%" }}
+                    contentFit="cover"
+                  />
+                ) : isVideo && player ? (
                   <Pressable
                     style={{ flex: 1 }}
                     onPress={() => {

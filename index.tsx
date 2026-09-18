@@ -1,3 +1,4 @@
+import 'react-native-gesture-handler';
 import 'react-native-url-polyfill/auto';
 import './src/__create/polyfills';
 global.Buffer = require('buffer').Buffer;

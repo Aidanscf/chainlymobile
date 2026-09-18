@@ -29,7 +29,8 @@ function normalizeUser(raw) {
   if (!email) {
     return null;
   }
-  return { id, email };
+  const name = raw.name == null ? null : String(raw.name).trim();
+  return { id, email, ...(name ? { name } : {}) };
 }
 
 async function persistAuthState(state) {
@@ -149,7 +150,7 @@ export const useAuthStore = create((set, get) => ({
   },
 
   handleAuthCallback: async (urlOrParams) => {
-    // The existing AuthWebView gives us { jwt, user }.
+    // Login / signup / AuthWebView give us { jwt, user, refreshToken }.
     const params =
       urlOrParams && typeof urlOrParams === "object" ? urlOrParams : null;
 

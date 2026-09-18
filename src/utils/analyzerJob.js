@@ -1,6 +1,102 @@
 import { rubricsByType } from "@/utils/scoringRubrics";
 import { drillsLibrary } from "@/data/drillsLibrary";
 import { startAIJob, waitForAIJob } from "@/services/aiJobClient";
+import { apiUploadFile } from "@/services/apiClient";
+import { useUserCharacter } from "@/store/userCharacter";
+
+function isRemoteUri(uri) {
+  const src = String(uri || "");
+  return src.startsWith("http://") || src.startsWith("https://");
+}
+
+export function normalizeRidingType(ridingType) {
+  const raw = String(ridingType || "").trim();
+  if (!raw) return raw;
+  const key = raw.toLowerCase();
+  if (key === "jumps") return "Jumps";
+  if (key === "drops") return "Drops";
+  if (key === "cornering") return "Cornering";
+  if (key === "steep tech" || key === "steeptech") return "Steep Tech";
+  return raw;
+}
+
+export function normalizeDrill(raw, index = 0) {
+  if (!raw || typeof raw !== "object") {
+    return null;
+  }
+  const name = String(raw.name || raw.title || `Drill ${index + 1}`).trim();
+  const goal = String(raw.goal || raw.detail || raw.description || "").trim();
+  const steps = Array.isArray(raw.steps)
+    ? raw.steps.map((s) => String(s || "").trim()).filter(Boolean)
+    : goal
+      ? [goal]
+      : [];
+  return {
+    id: String(raw.id || `drill_${index}`),
+    name,
+    goal,
+    steps,
+    time: String(raw.time || "8 min"),
+    difficulty: String(raw.difficulty || "Easy"),
+  };
+}
+
+export function normalizeAnalyzerResult(result) {
+  if (!result || typeof result !== "object") {
+    return result;
+  }
+
+  const ridingType = normalizeRidingType(result.ridingType);
+  let drills = (result.drills || []).map(normalizeDrill).filter(Boolean);
+
+  const hasRealSteps = drills.some((d) => (d.steps || []).length > 1);
+  if (!hasRealSteps) {
+    const bank = drillsLibrary[ridingType] || {};
+    const fromLib = Object.values(bank)
+      .flat()
+      .filter(Boolean)
+      .slice(0, 3);
+    if (fromLib.length) {
+      drills = fromLib;
+    }
+  }
+
+  return {
+    ...result,
+    ridingType,
+    drills,
+  };
+}
+
+function updateUserCharacterFromResult(result) {
+  if (!result?.shareCardData?.badge) {
+    return;
+  }
+  try {
+    useUserCharacter.getState().updateCharacter({
+      badge: result.shareCardData.badge,
+      ridingType: result.ridingType,
+      overallScore: result.overallScore,
+    });
+  } catch (err) {
+    console.error("Failed to update user character:", err);
+  }
+}
+
+async function resolveServerMediaUri(mediaUri, mediaType, mimeType) {
+  if (isRemoteUri(mediaUri)) {
+    return String(mediaUri);
+  }
+
+  const isImage = mediaType === "image";
+  return await apiUploadFile(mediaUri, {
+    name:
+      String(mediaUri).split("/").pop() ||
+      (isImage ? "photo.jpg" : "clip.mp4"),
+    mimeType:
+      mimeType || (isImage ? "image/jpeg" : "video/mp4"),
+  });
+}
 
 function clamp01To100(n) {
   const v = Number(n) || 0;
@@ -161,18 +257,28 @@ export function generateMockAnalyzerResult({
 export function startAnalysisJob({
   mediaUri,
   mediaType,
+  mimeType,
   ridingType,
   options,
   previousResult,
   onProgress,
 }) {
-  const steps = [
-    "Uploading media",
-    "Detecting rider + bike",
-    "Measuring movement & form",
-    "Scoring + generating drills",
-    "Finalizing results",
-  ];
+  const isImage = mediaType === "image";
+  const steps = isImage
+    ? [
+        "Uploading photo",
+        "Detecting rider + bike",
+        "Reading body position",
+        "Scoring + generating drills",
+        "Finalizing results",
+      ]
+    : [
+        "Uploading media",
+        "Detecting rider + bike",
+        "Measuring movement & form",
+        "Scoring + generating drills",
+        "Finalizing results",
+      ];
 
   let cancelled = false;
   let innerCancel = null;
@@ -195,11 +301,18 @@ export function startAnalysisJob({
       try {
         emit({ progress: 0, stepIndex: 0 });
 
+        const serverMediaUri = await resolveServerMediaUri(
+          mediaUri,
+          mediaType,
+          mimeType,
+        );
+        emit({ progress: 18, stepIndex: 1 });
+
         // Server-backed job system (cacheable + auditable)
         const { job } = await startAIJob({
           type: "media_analyzer",
           input: {
-            mediaUri,
+            mediaUri: serverMediaUri,
             mediaType,
             ridingType,
             options: options || {},
@@ -238,22 +351,9 @@ export function startAnalysisJob({
 
         const serverResult = finalJob?.result || null;
         if (serverResult) {
-          // Update user character store with the new badge
-          if (serverResult?.shareCardData?.badge) {
-            try {
-              const { useUserCharacter } = await import(
-                "@/store/userCharacter"
-              );
-              useUserCharacter.getState().updateCharacter({
-                badge: serverResult.shareCardData.badge,
-                ridingType: serverResult.ridingType,
-                overallScore: serverResult.overallScore,
-              });
-            } catch (err) {
-              console.error("Failed to update user character:", err);
-            }
-          }
-          resolve(serverResult);
+          const normalized = normalizeAnalyzerResult(serverResult);
+          updateUserCharacterFromResult(normalized);
+          resolve(normalized);
           return;
         }
 
@@ -266,20 +366,7 @@ export function startAnalysisJob({
           previousResult,
         });
 
-        // Update user character store with the mock result
-        if (localResult?.shareCardData?.badge) {
-          try {
-            const { useUserCharacter } = await import("@/store/userCharacter");
-            useUserCharacter.getState().updateCharacter({
-              badge: localResult.shareCardData.badge,
-              ridingType: localResult.ridingType,
-              overallScore: localResult.overallScore,
-            });
-          } catch (err) {
-            console.error("Failed to update user character:", err);
-          }
-        }
-
+        updateUserCharacterFromResult(localResult);
         resolve(localResult);
       } catch (error) {
         console.error(error);
@@ -294,22 +381,7 @@ export function startAnalysisJob({
             previousResult,
           });
 
-          // Update user character store with the fallback result
-          if (localResult?.shareCardData?.badge) {
-            try {
-              const { useUserCharacter } = await import(
-                "@/store/userCharacter"
-              );
-              useUserCharacter.getState().updateCharacter({
-                badge: localResult.shareCardData.badge,
-                ridingType: localResult.ridingType,
-                overallScore: localResult.overallScore,
-              });
-            } catch (err) {
-              console.error("Failed to update user character:", err);
-            }
-          }
-
+          updateUserCharacterFromResult(localResult);
           resolve(localResult);
         } catch (e) {
           reject(error);

@@ -40,12 +40,19 @@ export default function AIMediaAnalyzerProcessingScreen() {
   const pctText = useMemo(() => `${Math.round(progress)}%`, [progress]);
 
   const playfulLine = useMemo(() => {
-    if (activeIndex === 0) return "Warming up the upload…";
+    const isImage = draft?.mediaType === "image";
+    if (activeIndex === 0) {
+      return isImage ? "Uploading your photo…" : "Warming up the upload…";
+    }
     if (activeIndex === 1) return "Finding rider + bike…";
-    if (activeIndex === 2) return "Measuring movement & form…";
+    if (activeIndex === 2) {
+      return isImage
+        ? "Reading body position…"
+        : "Measuring movement & form…";
+    }
     if (activeIndex === 3) return "Scoring + picking drills…";
     return "Final polish…";
-  }, [activeIndex]);
+  }, [activeIndex, draft?.mediaType]);
 
   const onCancel = useCallback(async () => {
     try {
@@ -83,6 +90,7 @@ export default function AIMediaAnalyzerProcessingScreen() {
         const job = startAnalysisJob({
           mediaUri: draft.mediaUri,
           mediaType: draft.mediaType,
+          mimeType: draft.mimeType,
           ridingType: draft.ridingType,
           options: draft.options || {},
           previousResult: previous,

@@ -1,5 +1,6 @@
 import * as SecureStore from 'expo-secure-store';
 import { fetch as expoFetch } from 'expo/fetch';
+import { rewriteLocalhostUrl } from '@/services/apiBaseUrl';
 
 const originalFetch = fetch;
 const authKey = `${process.env.EXPO_PUBLIC_PROJECT_GROUP_ID}-jwt`;
@@ -21,10 +22,30 @@ const isFileURL = (url: string) => {
   return url.startsWith('file://') || url.startsWith('data:');
 };
 
+const isMetroDevRequest = (url: string) => {
+  if (!url.startsWith('/')) return false;
+  return (
+    url.includes('.bundle') ||
+    url.includes('transform.engine=') ||
+    url.includes('unstable_transformProfile=') ||
+    url.startsWith('/src/') ||
+    url.startsWith('/node_modules/') ||
+    url.startsWith('/index.bundle')
+  );
+};
+
 const isFirstPartyURL = (url: string) => {
+  if (isMetroDevRequest(url)) return false;
+  const firstPartyURL = process.env.EXPO_PUBLIC_BASE_URL;
+  const secondPartyURL = process.env.EXPO_PUBLIC_PROXY_BASE_URL;
+  const rewrittenFirst = rewriteLocalhostUrl(firstPartyURL || '');
+  const rewrittenSecond = rewriteLocalhostUrl(secondPartyURL || '');
   return (
     url.startsWith('/') ||
-    (process.env.EXPO_PUBLIC_BASE_URL && url.startsWith(process.env.EXPO_PUBLIC_BASE_URL))
+    (!!firstPartyURL && url.startsWith(firstPartyURL)) ||
+    (!!secondPartyURL && url.startsWith(secondPartyURL)) ||
+    (!!rewrittenFirst && url.startsWith(rewrittenFirst)) ||
+    (!!rewrittenSecond && url.startsWith(rewrittenSecond))
   );
 };
 
@@ -46,6 +67,15 @@ const fetchToWeb = async function fetchWithHeaders(...args: Params) {
     return originalFetch(input, init);
   }
 
+  if (isMetroDevRequest(url)) {
+    return originalFetch(input, init);
+  }
+
+  const rewrittenUrl = rewriteLocalhostUrl(url);
+  if (rewrittenUrl !== url && typeof input === 'string') {
+    return fetchToWeb(rewrittenUrl, init);
+  }
+
   const isExternalFetch = !isFirstPartyURL(url);
   // we should not add headers to requests that don't go to our own server
   if (isExternalFetch) {
@@ -53,7 +83,8 @@ const fetchToWeb = async function fetchWithHeaders(...args: Params) {
   }
 
   let finalInput = input;
-  const baseURL = (isSecondPartyURL(url) && secondPartyURL) ? secondPartyURL : firstPartyURL;
+  const rawBaseURL = (isSecondPartyURL(url) && secondPartyURL) ? secondPartyURL : firstPartyURL;
+  const baseURL = rewriteLocalhostUrl(rawBaseURL || '');
   
   if (!baseURL && url.startsWith('/')) {
     console.warn(`[fetch] No base URL found for internal request: ${url}`);
@@ -89,7 +120,7 @@ const fetchToWeb = async function fetchWithHeaders(...args: Params) {
       return null;
     });
 
-  if (auth) {
+  if (auth && !finalHeaders.has('authorization')) {
     finalHeaders.set('authorization', `Bearer ${auth.jwt}`);
   }
 

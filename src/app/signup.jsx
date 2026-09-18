@@ -81,12 +81,15 @@ export default function SignupScreen() {
 
       const jwt = data?.jwt ? String(data.jwt) : null;
       const nextUser = data?.user || null;
+      const refreshToken = data?.refreshToken
+        ? String(data.refreshToken)
+        : null;
 
       if (!jwt || !nextUser?.email) {
         throw new Error("Invalid signup response");
       }
 
-      await handleAuthCallback({ jwt, user: nextUser });
+      await handleAuthCallback({ jwt, user: nextUser, refreshToken });
       router.replace("/(tabs)");
     } catch (e) {
       console.error(e);

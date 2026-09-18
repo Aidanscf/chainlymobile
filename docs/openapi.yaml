@@ -1,0 +1,1167 @@
+openapi: 3.0.3
+info:
+  title: Chainly Mobile API
+  version: 1.1.0
+  description: |
+    Complete API contract for the Chainly mobile client.
+    Prefer docs/API.md for full field notes and priority order.
+    Key names must match exactly (client mixes camelCase and snake_case by domain).
+servers:
+  - url: https://api.example.com
+security:
+  - bearerAuth: []
+  - chainlyUserId: []
+
+tags:
+  - name: Auth
+  - name: Profile
+  - name: Bikes
+  - name: Presets
+  - name: Rides
+  - name: Workorders
+  - name: Strava
+  - name: Friends
+  - name: AI
+  - name: Gear
+  - name: RidingLogs
+  - name: Events
+
+paths:
+  /api/auth/signup:
+    post:
+      tags: [Auth]
+      security: []
+      summary: Create account
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, email, password]
+              properties:
+                name: { type: string }
+                email: { type: string, format: email }
+                password: { type: string, minLength: 6 }
+      responses:
+        "200":
+          description: Created + signed in
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthResponse"
+
+  /api/auth/login:
+    post:
+      tags: [Auth]
+      security: []
+      summary: Login with email/password
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: { type: string }
+                password: { type: string }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthResponse"
+
+  /api/auth/token:
+    get:
+      tags: [Auth]
+      security: []
+      summary: WebView session exchange → jwt + user
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthResponse"
+
+  /api/profile:
+    get:
+      tags: [Profile]
+      summary: Get profile bags + updatedAt
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProfileGetResponse"
+    put:
+      tags: [Profile]
+      summary: Sync profile bags
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProfilePutRequest"
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  updatedAt: { type: string, format: date-time }
+    post:
+      tags: [Profile]
+      summary: Onboarding upsert (best-effort)
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                userProfile: { type: object }
+                bikeInfo: { type: object }
+                notificationPrefs: { type: object }
+                profile:
+                  type: object
+                  properties:
+                    email: { type: string }
+                    name: { type: string }
+      responses:
+        "200": { description: OK }
+
+  /api/bikes:
+    get:
+      tags: [Bikes]
+      summary: List bikes
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  bikes:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Bike"
+    post:
+      tags: [Bikes]
+      summary: Simple bike create (client UUID)
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [id]
+              properties:
+                id: { type: string, format: uuid }
+                name: { type: string }
+                type: { type: string }
+      responses:
+        "201": { description: Created }
+
+  /api/bikes/create:
+    post:
+      tags: [Bikes]
+      summary: Rich create bike + components
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BikeCreateRich"
+      responses:
+        "201": { description: Created }
+
+  /api/bikes/{bikeId}:
+    parameters:
+      - $ref: "#/components/parameters/bikeId"
+    get:
+      tags: [Bikes]
+      summary: Canonical bike hydrate
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BikeHydrate"
+    put:
+      tags: [Bikes]
+      summary: Partial bike update (snake_case)
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        "200": { description: OK }
+    delete:
+      tags: [Bikes]
+      responses:
+        "204": { description: Deleted }
+
+  /api/bikes/{bikeId}/components:
+    parameters:
+      - $ref: "#/components/parameters/bikeId"
+    post:
+      tags: [Bikes]
+      summary: Upsert component
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [component_type]
+              properties:
+                component_type: { type: string }
+                name: { type: string, nullable: true }
+      responses:
+        "200": { description: OK }
+
+  /api/bikes/{bikeId}/maintenance-log:
+    parameters:
+      - $ref: "#/components/parameters/bikeId"
+    post:
+      tags: [Bikes]
+      summary: Log maintenance; return updated hydrate
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [type, performedAt]
+              properties:
+                type: { type: string }
+                performedAt: { type: string }
+                note: { type: string, nullable: true }
+                meta: { type: object }
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BikeHydrate"
+
+  /api/bikes/{bikeId}/presets:
+    parameters:
+      - $ref: "#/components/parameters/bikeId"
+    get:
+      tags: [Presets]
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  presets:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Preset"
+    post:
+      tags: [Presets]
+      summary: Create preset (camelCase body)
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PresetWrite"
+      responses:
+        "201": { description: Created }
+
+  /api/presets/{presetId}:
+    parameters:
+      - name: presetId
+        in: path
+        required: true
+        schema: { type: string }
+    put:
+      tags: [Presets]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        "200": { description: OK }
+    delete:
+      tags: [Presets]
+      responses:
+        "204": { description: Deleted }
+
+  /api/rides:
+    get:
+      tags: [Rides]
+      parameters:
+        - name: uncategorized
+          in: query
+          schema: { type: boolean }
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  rides:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Ride"
+    post:
+      tags: [Rides]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RideCreate"
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ride:
+                    $ref: "#/components/schemas/Ride"
+
+  /api/rides/{rideId}:
+    parameters:
+      - name: rideId
+        in: path
+        required: true
+        schema: { type: string }
+    patch:
+      tags: [Rides]
+      summary: Categorize ride (rideFocus)
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [rideFocus]
+              properties:
+                rideFocus:
+                  type: string
+                  enum: [flow, tech, climb]
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  rideId: { type: string }
+                  characterUpdate:
+                    type: object
+                    properties:
+                      badge: { type: string }
+                      ridingType: { type: string }
+                      overallScore: { type: number }
+    delete:
+      tags: [Rides]
+      responses:
+        "204": { description: Deleted }
+
+  /api/bikes/{bikeId}/workorders:
+    parameters:
+      - $ref: "#/components/parameters/bikeId"
+      - name: limit
+        in: query
+        schema: { type: integer, default: 50 }
+    get:
+      tags: [Workorders]
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  workorders:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Workorder"
+    post:
+      tags: [Workorders]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                id: { type: string, format: uuid }
+                title: { type: string }
+                serviceDate: { type: string }
+                imageUrl: { type: string }
+      responses:
+        "201": { description: Created }
+
+  /api/workorders/analyze:
+    post:
+      tags: [Workorders]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [bike_id, workorder_id, image_url]
+              properties:
+                bike_id: { type: string }
+                workorder_id: { type: string }
+                image_url: { type: string }
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  summary: { type: object }
+                  summary_text: { type: string }
+                  confidence: { type: number }
+
+  /api/workorders/{workorderId}:
+    delete:
+      tags: [Workorders]
+      parameters:
+        - name: workorderId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "204": { description: Deleted }
+
+  /api/strava/status:
+    get:
+      tags: [Strava]
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StravaStatus"
+
+  /api/strava/exchange:
+    post:
+      tags: [Strava]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [code]
+              properties:
+                code: { type: string }
+      responses:
+        "200": { description: OK }
+
+  /api/strava/sync:
+    post:
+      tags: [Strava]
+      responses:
+        "200": { description: OK }
+
+  /api/strava/disconnect:
+    post:
+      tags: [Strava]
+      responses:
+        "200": { description: OK }
+
+  /api/friends/me:
+    get:
+      tags: [Friends]
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FriendsMe"
+
+  /api/friends/list:
+    get:
+      tags: [Friends]
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  friends:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/FriendSummary"
+
+  /api/friends/profile:
+    get:
+      tags: [Friends]
+      parameters:
+        - name: user_id
+          in: query
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  profile:
+                    $ref: "#/components/schemas/FriendProfile"
+
+  /api/friends/request:
+    post:
+      tags: [Friends]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [friend_code]
+              properties:
+                friend_code: { type: string }
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string }
+
+  /api/friends/request/respond:
+    post:
+      tags: [Friends]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [request_id, action]
+              properties:
+                request_id: { type: string }
+                action:
+                  type: string
+                  enum: [accept, decline]
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string }
+
+  /api/friends/nudge:
+    post:
+      tags: [Friends]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [friend_user_id]
+              properties:
+                friend_user_id: { type: string }
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string }
+
+  /api/ai/job:
+    post:
+      tags: [AI]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [type, input]
+              properties:
+                type:
+                  type: string
+                  description: suspension_baseline | media_analyzer | photo_mechanic | gear_recommender | trip_planner
+                input: { type: object }
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  job:
+                    $ref: "#/components/schemas/AIJob"
+                  cached: { type: boolean }
+
+  /api/ai/job/{jobId}:
+    get:
+      tags: [AI]
+      parameters:
+        - name: jobId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  job:
+                    $ref: "#/components/schemas/AIJob"
+
+  /api/ai/mechanic/triage:
+    post:
+      tags: [AI]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                issue_text: { type: string }
+                bike_profile: { type: object, nullable: true }
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  triage:
+                    type: object
+                    properties:
+                      follow_up_questions_needed: { type: boolean }
+                      follow_up_questions:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            id: { type: string }
+                            question: { type: string }
+                            type:
+                              type: string
+                              enum: [yes_no, select]
+                            options:
+                              type: array
+                              items: { type: string }
+
+  /api/ai/mechanic/diagnose:
+    post:
+      tags: [AI]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                issue_text: { type: string }
+                answers: { type: object }
+                bike_profile: { type: object, nullable: true }
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  diagnosis:
+                    type: object
+                    properties:
+                      diagnosisTitle: { type: string }
+                      confidence: { type: number }
+                      summary: { type: string }
+                      warnings:
+                        type: array
+                        items: { type: string }
+                      fixSteps:
+                        type: array
+                        items: { type: string }
+                      system_area: { type: string, nullable: true }
+
+  /api/gear/recommendations/refresh:
+    post:
+      tags: [Gear]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                bikeProfile: { type: object }
+                riderProfile: { type: object }
+                preferences: { type: object }
+                unknowns:
+                  type: array
+                  items: { type: string }
+                region: { type: string }
+                currency: { type: string }
+                context: { type: object }
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  recommendedGear:
+                    type: array
+                    items: { type: object }
+                  notes:
+                    type: array
+                    items: { type: string }
+
+  /api/riding-goals:
+    get:
+      tags: [RidingLogs]
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  personalBests:
+                    type: object
+                    properties:
+                      jump: { type: number }
+                      drop: { type: number }
+                  goals:
+                    type: object
+                    properties:
+                      jump:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            threshold_value: { type: number }
+                            completed: { type: boolean }
+                      drop:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            threshold_value: { type: number }
+                            completed: { type: boolean }
+
+  /api/riding-logs:
+    get:
+      tags: [RidingLogs]
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  logs:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/RidingLog"
+    post:
+      tags: [RidingLogs]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                type: { type: string }
+                image_url: { type: string }
+                bike_id: { type: string, nullable: true }
+                status: { type: string }
+                marker_a_x: { type: number }
+                marker_a_y: { type: number }
+                marker_b_x: { type: number }
+                marker_b_y: { type: number }
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  log:
+                    type: object
+                    required: [id]
+                    properties:
+                      id: { type: string }
+
+  /api/riding-logs/analyze:
+    post:
+      tags: [RidingLogs]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                riding_log_id: { type: string }
+                type: { type: string }
+                image_url: { type: string }
+                wheel:
+                  type: object
+                  properties:
+                    wheel_size_label: { type: string }
+                markers:
+                  type: object
+                  properties:
+                    a:
+                      type: object
+                      properties:
+                        x: { type: number }
+                        y: { type: number }
+                    b:
+                      type: object
+                      properties:
+                        x: { type: number }
+                        y: { type: number }
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  type: { type: string }
+                  value_ft: { type: number }
+                  confidence: { type: number }
+                  notes: { type: string, nullable: true }
+                  status:
+                    type: string
+                    enum: [measured, failed]
+
+  /api/events:
+    post:
+      tags: [Events]
+      security: []
+      summary: Analytics event (device or bearer)
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [type]
+              properties:
+                type: { type: string }
+                payload: { type: object }
+      responses:
+        "200": { description: OK }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+    chainlyUserId:
+      type: apiKey
+      in: header
+      name: x-chainly-user-id
+
+  parameters:
+    bikeId:
+      name: bikeId
+      in: path
+      required: true
+      schema: { type: string }
+
+  schemas:
+    AuthResponse:
+      type: object
+      required: [jwt, user]
+      properties:
+        jwt: { type: string }
+        refreshToken: { type: string }
+        user:
+          $ref: "#/components/schemas/User"
+
+    User:
+      type: object
+      required: [email]
+      properties:
+        id: { type: string, format: uuid }
+        email: { type: string }
+        name: { type: string }
+
+    ProfileGetResponse:
+      type: object
+      properties:
+        profile:
+          type: object
+          properties:
+            userProfile: { type: object }
+            notificationPrefs: { type: object }
+            bikeInfo: { type: object }
+            appearance: { type: object }
+        updatedAt: { type: string, format: date-time }
+
+    ProfilePutRequest:
+      type: object
+      properties:
+        userProfile: { type: object }
+        notificationPrefs: { type: object }
+        bikeInfo: { type: object }
+        appearance: { type: object }
+        syncMeta:
+          type: object
+          properties:
+            profileUpdatedAt: { type: string }
+
+    Bike:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string }
+        bike_type: { type: string }
+        type: { type: string }
+        image_url: { type: string, nullable: true }
+        health_score: { type: number }
+        wheel_size: { type: string, nullable: true }
+        wheel_config: { type: string, nullable: true }
+        hub_driver: { type: string, nullable: true }
+        brake_mount: { type: string, nullable: true }
+        rotor_size: { type: number, nullable: true }
+        drivetrain_speed: { type: number, nullable: true }
+        suspension_travel_front: { type: number, nullable: true }
+        suspension_travel_rear: { type: number, nullable: true }
+        is_tubeless: { type: boolean }
+        brand: { type: string, nullable: true }
+        model: { type: string, nullable: true }
+        model_year: { type: number, nullable: true }
+        frame_size: { type: string, nullable: true }
+        purchase_date: { type: string, nullable: true }
+        purchase_year: { type: number, nullable: true }
+        serial_number: { type: string, nullable: true }
+
+    Component:
+      type: object
+      properties:
+        id: { type: string }
+        bike_id: { type: string }
+        component_type: { type: string }
+        name: { type: string, nullable: true }
+        wear_percent: { type: number }
+        install_date: { type: string }
+        came_with_bike: { type: boolean }
+
+    MaintenanceEvent:
+      type: object
+      properties:
+        id: { type: string }
+        bike_id: { type: string }
+        action: { type: string }
+        type: { type: string }
+        performed_at: { type: string }
+        note: { type: string, nullable: true }
+        meta: { type: object }
+
+    BikeHydrate:
+      type: object
+      properties:
+        bike:
+          $ref: "#/components/schemas/Bike"
+        components:
+          type: array
+          items:
+            $ref: "#/components/schemas/Component"
+        maintenanceEvents:
+          type: array
+          items:
+            $ref: "#/components/schemas/MaintenanceEvent"
+
+    BikeCreateRich:
+      type: object
+      properties:
+        bike:
+          $ref: "#/components/schemas/Bike"
+        components:
+          type: array
+          items:
+            type: object
+            properties:
+              component_type: { type: string }
+              name: { type: string, nullable: true }
+              wear_percent: { type: number }
+              install_date: { type: string }
+              came_with_bike: { type: boolean }
+
+    SuspensionSettings:
+      type: object
+      properties:
+        psi: { type: number }
+        reboundClicks: { type: number }
+        compressionClicks: { type: number }
+
+    Preset:
+      type: object
+      properties:
+        id: { type: string }
+        bike_id: { type: string }
+        name: { type: string }
+        notes: { type: string, nullable: true }
+        terrain_tag: { type: string, nullable: true }
+        weather_tag: { type: string, nullable: true }
+        fork_settings:
+          $ref: "#/components/schemas/SuspensionSettings"
+        shock_settings:
+          $ref: "#/components/schemas/SuspensionSettings"
+        created_at: { type: string }
+        last_used_at: { type: string, nullable: true }
+
+    PresetWrite:
+      type: object
+      properties:
+        id: { type: string }
+        bikeId: { type: string }
+        name: { type: string }
+        notes: { type: string, nullable: true }
+        terrainTag: { type: string, nullable: true }
+        weatherTag: { type: string, nullable: true }
+        forkSettings:
+          $ref: "#/components/schemas/SuspensionSettings"
+        shockSettings:
+          $ref: "#/components/schemas/SuspensionSettings"
+        lastUsedAt: { type: string, nullable: true }
+
+    Ride:
+      type: object
+      properties:
+        id: { type: string }
+        bike_id: { type: string }
+        distance: { type: number }
+        distance_km: { type: number }
+        elevation_gain: { type: number }
+        elevation_gain_m: { type: number }
+        descent_m: { type: number }
+        duration_min: { type: number }
+        terrain_tag: { type: string, nullable: true }
+        weather_tag: { type: string, nullable: true }
+        source: { type: string }
+        ride_at: { type: string }
+        meta: { type: object }
+        created_at: { type: string }
+        updated_at: { type: string }
+
+    RideCreate:
+      type: object
+      properties:
+        id: { type: string }
+        bikeId: { type: string }
+        source: { type: string }
+        rideAt: { type: string }
+        durationMin: { type: number, nullable: true }
+        distance: { type: number, nullable: true }
+        distanceKm: { type: number, nullable: true }
+        elevationGain: { type: number, nullable: true }
+        elevationGainM: { type: number, nullable: true }
+        descentM: { type: number, nullable: true }
+        movingTimeSec: { type: number, nullable: true }
+        terrainTag: { type: string, nullable: true }
+        weatherTag: { type: string, nullable: true }
+        meta: { type: object }
+
+    Workorder:
+      type: object
+      properties:
+        id: { type: string }
+        bike_id: { type: string }
+        title: { type: string }
+        service_date: { type: string }
+        image_url: { type: string }
+        created_at: { type: string }
+        ai_status: { type: string, nullable: true }
+        ai_summary: { type: object }
+        ai_summary_text: { type: string, nullable: true }
+        ai_confidence: { type: number }
+        ai_created_at: { type: string, nullable: true }
+        ai_error: { type: string, nullable: true }
+        pending: { type: boolean }
+
+    StravaStatus:
+      type: object
+      properties:
+        connected: { type: boolean }
+        clientId: { type: string }
+        athlete:
+          type: object
+          properties:
+            username: { type: string }
+            displayName: { type: string }
+        lastSyncAt: { type: string, nullable: true }
+        lastError: { type: string, nullable: true }
+        lastErrorAt: { type: string, nullable: true }
+
+    FriendsMe:
+      type: object
+      properties:
+        friend_code: { type: string }
+        pending_incoming_count: { type: integer }
+        incoming_requests:
+          type: array
+          items:
+            type: object
+            properties:
+              id: { type: string }
+              requester_name: { type: string }
+        outgoing_requests:
+          type: array
+          items:
+            type: object
+            properties:
+              id: { type: string }
+              addressee_name: { type: string }
+
+    FriendSummary:
+      type: object
+      properties:
+        id: { type: string }
+        display_name: { type: string }
+        avatar_url: { type: string, nullable: true }
+        league_tier: { type: string, nullable: true }
+        league_rank: { type: number }
+        overall_score: { type: number }
+        stat_tree_summary: { type: object }
+        bike_health_score: { type: number }
+
+    FriendProfile:
+      allOf:
+        - $ref: "#/components/schemas/FriendSummary"
+        - type: object
+          properties:
+            stat_tree: { type: object }
+
+    AIJob:
+      type: object
+      properties:
+        id: { type: string }
+        status:
+          type: string
+          enum: [queued, running, completed, failed]
+        progress: { type: number }
+        result: { type: object, nullable: true }
+        error: { type: string, nullable: true }
+
+    RidingLog:
+      type: object
+      properties:
+        id: { type: string }
+        type: { type: string }
+        status: { type: string }
+        measured_value: { type: number }
+        confidence: { type: number }
+        created_at: { type: string }
+        image_url: { type: string }
+        bike_id: { type: string, nullable: true }

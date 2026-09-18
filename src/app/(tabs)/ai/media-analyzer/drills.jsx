@@ -20,6 +20,7 @@ import Chip from "@/components/Chip";
 import { colors, spacing, radius, typography } from "@/theme/index";
 import { useMediaAnalyzerStore } from "@/store/mediaAnalyzer";
 import { recommendedVideos } from "@/data/drillsLibrary";
+import { normalizeAnalyzerResult } from "@/utils/analyzerJob";
 
 export default function AIMediaAnalyzerDrillsScreen() {
   const insets = useSafeAreaInsets();
@@ -34,7 +35,8 @@ export default function AIMediaAnalyzerDrillsScreen() {
     if (!resultId) {
       return null;
     }
-    return getResultById(String(resultId));
+    const raw = getResultById(String(resultId));
+    return raw ? normalizeAnalyzerResult(raw) : null;
   }, [getResultById, resultId]);
 
   const [toast, setToast] = useState(null);
@@ -155,7 +157,11 @@ export default function AIMediaAnalyzerDrillsScreen() {
 
         <AppCard style={styles.videoCard} pressable={false}>
           <Text style={styles.sectionTitle}>Recommended videos</Text>
-          <Text style={styles.sectionSub}>Quick links (stub for now)</Text>
+          <Text style={styles.sectionSub}>
+            {vids.length
+              ? "Tap a clip for extra coaching cues."
+              : "No video links for this riding type yet."}
+          </Text>
 
           <View style={{ marginTop: spacing.md, gap: spacing.sm }}>
             {vids.map((v) => (
