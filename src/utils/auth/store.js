@@ -167,7 +167,9 @@ export const useAuthStore = create((set, get) => ({
     const accessToken = params?.jwt ? String(params.jwt) : null;
     const refreshToken = params?.refreshToken
       ? String(params.refreshToken)
-      : null;
+      : params?.refresh_token
+        ? String(params.refresh_token)
+        : null;
     const user = normalizeUser(params?.user);
 
     if (!accessToken || !user?.email) {
@@ -207,6 +209,21 @@ export const useAuthStore = create((set, get) => ({
 
   logout: async () => {
     devLog("logout");
+
+    const refreshToken = get().refreshToken ? String(get().refreshToken) : "";
+
+    // POST /api/auth/logout requires { refreshToken }.
+    // Local logout always proceeds even if the network call fails.
+    try {
+      const { apiFetch } = await import("@/services/apiClient");
+      await apiFetch("/api/auth/logout", {
+        method: "POST",
+        body: JSON.stringify({ refreshToken }),
+      });
+    } catch (e) {
+      console.warn("[auth] server logout failed:", e?.message || e);
+    }
+
     try {
       await AsyncStorage.removeItem(AUTH_STORAGE_KEY);
     } catch (e) {

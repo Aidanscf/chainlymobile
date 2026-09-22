@@ -138,7 +138,9 @@ export default function LoginScreen() {
       const nextUser = data?.user || null;
       const refreshToken = data?.refreshToken
         ? String(data.refreshToken)
-        : null;
+        : data?.refresh_token
+          ? String(data.refresh_token)
+          : null;
 
       if (!jwt || !nextUser?.email) {
         throw new Error("Invalid login response");
@@ -147,9 +149,12 @@ export default function LoginScreen() {
       await handleAuthCallback({ jwt, user: nextUser, refreshToken });
     } catch (e) {
       console.error(e);
+      const detail = e?.message ? String(e.message) : "";
       Alert.alert(
         "Login failed",
-        "Couldn’t sign in with email/password. Please check your credentials or server configuration.",
+        detail.includes("Failed to fetch") || detail.includes("Network error")
+          ? "Couldn’t reach the server. Login is failing on chainly.club (database auth). Please try again after the backend is fixed."
+          : detail || "Couldn’t sign in. Please check your email and password.",
       );
     } finally {
       setSubmitting(false);

@@ -30,8 +30,8 @@ export const useAuth = () => {
     open({ mode: "signup" });
   }, [clearError, open]);
 
-  const signOut = useCallback(() => {
-    logout();
+  const signOut = useCallback(async () => {
+    await logout();
     close();
   }, [close, logout]);
 

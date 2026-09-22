@@ -99,12 +99,30 @@ export function useSettingsActions({
     const isAuthed = authStatus === "authenticated";
 
     if (!isAuthed) {
-      useAuthStore.getState().clearError();
-      useAuthStore.getState().loginWithWebView({ mode: "signin" });
+      router.push("/login");
       return;
     }
 
     const email = authUser?.email ? String(authUser.email) : "";
+    const doLogout = async () => {
+      await useAuthStore.getState().logout();
+      if (Platform.OS === "web" && typeof window !== "undefined") {
+        window.location.assign("/login");
+        return;
+      }
+      router.replace("/login");
+    };
+
+    if (Platform.OS === "web") {
+      const ok =
+        typeof window !== "undefined" &&
+        window.confirm(
+          email ? `Log out of ${email}?` : "Log out of Chainly?",
+        );
+      if (ok) await doLogout();
+      return;
+    }
+
     Alert.alert(
       "Log out",
       email ? `Signed in as ${email}` : "Log out of Chainly?",
@@ -114,12 +132,12 @@ export function useSettingsActions({
           text: "Log out",
           style: "destructive",
           onPress: () => {
-            useAuthStore.getState().logout();
+            doLogout();
           },
         },
       ],
     );
-  }, [onHaptic]);
+  }, [onHaptic, router]);
 
   const onConfirmReset = useCallback(async () => {
     await onHaptic();

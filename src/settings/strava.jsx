@@ -5,11 +5,19 @@ import React, {
   useRef,
   useState,
 } from "react";
-import { View, Text, StyleSheet, ScrollView, Alert } from "react-native";
+import {
+  View,
+  Text,
+  StyleSheet,
+  ScrollView,
+  Alert,
+  Platform,
+} from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { StatusBar } from "expo-status-bar";
-import { useRouter } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import * as Linking from "expo-linking";
+import * as WebBrowser from "expo-web-browser";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Link2, RefreshCw, Unlink2 } from "lucide-react-native";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -24,6 +32,8 @@ import { ACCOUNTS_ENABLED, SERVER_SYNC_ENABLED } from "@/utils/featureFlags";
 import { useAuth } from "@/utils/auth/useAuth";
 
 const PKCE_STORAGE_KEY = "chainly_strava_oauth_state_v1";
+
+WebBrowser.maybeCompleteAuthSession();
 
 function formatWhen(ts) {
   if (!ts) return null;
@@ -49,6 +59,8 @@ export default function SettingsStravaScreen() {
   const router = useRouter();
   const queryClient = useQueryClient();
 
+  const searchParams = useLocalSearchParams();
+
   const { isReady, isAuthenticated, signIn } = useAuth();
 
   const [uiError, setUiError] = useState(null);
@@ -56,7 +68,12 @@ export default function SettingsStravaScreen() {
   const handledRef = useRef(false);
   const lastStateRef = useRef(null);
 
-  const redirectUri = useMemo(() => "chainly://strava/callback", []);
+  const redirectUri = useMemo(() => {
+    if (Platform.OS === "web") {
+      return Linking.createURL("/settings/strava");
+    }
+    return "chainly://strava/callback";
+  }, []);
 
   const statusQuery = useQuery({
     queryKey: ["strava", "status"],
@@ -94,7 +111,7 @@ export default function SettingsStravaScreen() {
     mutationFn: async ({ code }) => {
       return await apiFetch("/api/strava/exchange", {
         method: "POST",
-        body: JSON.stringify({ code }),
+        body: JSON.stringify({ code, redirectUri }),
       });
     },
     onSuccess: async () => {
@@ -126,23 +143,29 @@ export default function SettingsStravaScreen() {
 
       const parsed = Linking.parse(url);
       const path = parsed?.path ? String(parsed.path) : "";
-
-      // expo-linking strips leading "/"; handle both.
-      const isCallback =
-        path === "strava/callback" || path === "/strava/callback";
-      if (!isCallback) return;
-
-      if (handledRef.current) return;
-      handledRef.current = true;
-
       const qp = parsed?.queryParams || {};
       const code = qp?.code ? String(qp.code) : null;
       const error = qp?.error ? String(qp.error) : null;
       const state = qp?.state ? String(qp.state) : null;
 
+      const isCallback =
+        path === "strava/callback" ||
+        path === "/strava/callback" ||
+        path === "settings/strava" ||
+        path === "/settings/strava" ||
+        path === "StravaConnect" ||
+        path === "/StravaConnect" ||
+        !!code ||
+        !!error;
+      if (!isCallback) return;
+
+      if (handledRef.current) return;
+      handledRef.current = true;
+
       const storedState = await AsyncStorage.getItem(PKCE_STORAGE_KEY);
       const expectedState = storedState ? String(storedState) : null;
       if (expectedState && state && expectedState !== state) {
+        handledRef.current = false;
         setUiError("Security check failed. Please try connecting again.");
         return;
       }
@@ -153,14 +176,18 @@ export default function SettingsStravaScreen() {
       }
 
       if (!code) {
+        handledRef.current = false;
         setUiError("Couldn’t read the Strava code. Try again.");
         return;
       }
 
       setUiError(null);
       exchangeMutation.mutate({ code });
+      if (Platform.OS === "web") {
+        router.replace("/settings/strava");
+      }
     },
-    [exchangeMutation],
+    [exchangeMutation, router],
   );
 
   useEffect(() => {
@@ -187,6 +214,15 @@ export default function SettingsStravaScreen() {
     };
   }, [maybeHandleCallbackUrl]);
 
+  useEffect(() => {
+    if (Platform.OS !== "web") return;
+    const code = searchParams?.code ? String(searchParams.code) : "";
+    if (!code) return;
+    const href =
+      typeof window !== "undefined" ? window.location.href : null;
+    maybeHandleCallbackUrl(href);
+  }, [maybeHandleCallbackUrl, searchParams?.code]);
+
   const onBack = useCallback(() => {
     router.back();
   }, [router]);
@@ -207,13 +243,19 @@ export default function SettingsStravaScreen() {
     }
 
     if (!isAuthenticated) {
-      signIn();
+      if (Platform.OS === "web") {
+        router.push("/login");
+      } else {
+        signIn();
+      }
       return;
     }
 
     const clientId = statusQuery?.data?.clientId
       ? String(statusQuery.data.clientId)
-      : null;
+      : statusQuery?.data?.client_id
+        ? String(statusQuery.data.client_id)
+        : null;
 
     if (!clientId) {
       setUiError(
@@ -222,7 +264,6 @@ export default function SettingsStravaScreen() {
       return;
     }
 
-    // Reset callback handler so a fresh connect can run.
     handledRef.current = false;
 
     const state = `${Date.now()}_${Math.random().toString(16).slice(2)}`;
@@ -232,17 +273,30 @@ export default function SettingsStravaScreen() {
     const url = buildAuthorizeUrl({ clientId, redirectUri, state });
 
     try {
-      await Linking.openURL(url);
+      const result = await WebBrowser.openAuthSessionAsync(url, redirectUri);
+      if (result?.type === "success" && result.url) {
+        await maybeHandleCallbackUrl(result.url);
+      } else if (result?.type === "cancel" || result?.type === "dismiss") {
+        setUiError("Strava sign-in was canceled.");
+      }
     } catch (e) {
       console.error(e);
-      setUiError("Couldn’t open Strava. Try again.");
+      try {
+        await Linking.openURL(url);
+      } catch (openErr) {
+        console.error(openErr);
+        setUiError("Couldn’t open Strava. Try again.");
+      }
     }
   }, [
     isAuthenticated,
     isReady,
+    maybeHandleCallbackUrl,
     redirectUri,
+    router,
     signIn,
     statusQuery?.data?.clientId,
+    statusQuery?.data?.client_id,
   ]);
 
   const onSyncNow = useCallback(async () => {

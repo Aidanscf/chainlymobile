@@ -38,6 +38,7 @@ export async function apiFetch(path, options) {
   const headers = {
     Accept: "application/json",
     "Content-Type": "application/json",
+    "ngrok-skip-browser-warning": "true",
     ...(options?.headers || {}),
     "x-chainly-user-id": userId,
     ...(isAuthenticated

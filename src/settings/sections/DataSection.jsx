@@ -69,8 +69,7 @@ export function DataSection({ settings, update, onHaptic }) {
           sub={stravaSub}
           onPress={async () => {
             await onHaptic();
-            // Use the stable route name requested by the prompt.
-            router.push("/StravaConnect");
+            router.push("/settings/strava");
           }}
         />
         <Divider />

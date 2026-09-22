@@ -78,7 +78,7 @@ export function useStravaSync(bikeId) {
 
     const connected = !!statusQuery.data?.connected;
     if (!connected) {
-      router.push("/StravaConnect");
+      router.push("/settings/strava");
       return;
     }
 

@@ -126,7 +126,7 @@ export default function RiderCharacterScreen() {
 
     const connected = !!statusQuery.data?.connected;
     if (!connected) {
-      router.push("/StravaConnect");
+      router.push("/settings/strava");
       return;
     }
 

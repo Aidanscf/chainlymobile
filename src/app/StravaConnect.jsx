@@ -1,5 +1,5 @@
-import SettingsStravaScreen from "../settings/strava";
+import { Redirect } from "expo-router";
 
-// Alias route so other screens can navigate to a stable name.
-// This keeps routing simple: router.push('/StravaConnect')
-export default SettingsStravaScreen;
+export default function StravaConnectRedirect() {
+  return <Redirect href="/settings/strava" />;
+}

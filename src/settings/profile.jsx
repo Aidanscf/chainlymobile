@@ -90,17 +90,34 @@ export default function SettingsProfileScreen() {
 
   const onLogout = useCallback(async () => {
     await onHaptic();
+    const doLogout = async () => {
+      await useAuthStore.getState().logout();
+      if (Platform.OS === "web" && typeof window !== "undefined") {
+        window.location.assign("/login");
+        return;
+      }
+      router.replace("/login");
+    };
+
+    if (Platform.OS === "web") {
+      const ok =
+        typeof window !== "undefined" &&
+        window.confirm("Log out? You can keep using Chainly offline.");
+      if (ok) await doLogout();
+      return;
+    }
+
     Alert.alert("Log out?", "You can keep using Chainly offline.", [
       { text: "Cancel", style: "cancel" },
       {
         text: "Log out",
         style: "destructive",
         onPress: () => {
-          useAuthStore.getState().logout();
+          doLogout();
         },
       },
     ]);
-  }, [onHaptic]);
+  }, [onHaptic, router]);
 
   const initials = useMemo(() => {
     const parts = String(name || "Rider")

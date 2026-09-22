@@ -83,7 +83,9 @@ export default function SignupScreen() {
       const nextUser = data?.user || null;
       const refreshToken = data?.refreshToken
         ? String(data.refreshToken)
-        : null;
+        : data?.refresh_token
+          ? String(data.refresh_token)
+          : null;
 
       if (!jwt || !nextUser?.email) {
         throw new Error("Invalid signup response");
@@ -93,9 +95,12 @@ export default function SignupScreen() {
       router.replace("/(tabs)");
     } catch (e) {
       console.error(e);
+      const detail = e?.message ? String(e.message) : "";
       Alert.alert(
         "Signup failed",
-        "Couldn’t create your account. Please try again or check server configuration.",
+        detail.includes("Failed to fetch") || detail.includes("Network error")
+          ? "Couldn’t reach the server. Signup is failing on chainly.club (database auth). Please try again after the backend is fixed."
+          : detail || "Couldn’t create your account. Please try again.",
       );
     } finally {
       setSubmitting(false);

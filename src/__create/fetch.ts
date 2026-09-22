@@ -1,6 +1,10 @@
+import { Platform } from 'react-native';
 import * as SecureStore from 'expo-secure-store';
 import { fetch as expoFetch } from 'expo/fetch';
-import { rewriteLocalhostUrl } from '@/services/apiBaseUrl';
+import {
+  rewriteLocalhostHost,
+  rewriteLocalhostUrl,
+} from '@/services/apiBaseUrl';
 
 const originalFetch = fetch;
 const authKey = `${process.env.EXPO_PUBLIC_PROJECT_GROUP_ID}-jwt`;
@@ -22,30 +26,99 @@ const isFileURL = (url: string) => {
   return url.startsWith('file://') || url.startsWith('data:');
 };
 
-const isMetroDevRequest = (url: string) => {
-  if (!url.startsWith('/')) return false;
-  return (
-    url.includes('.bundle') ||
-    url.includes('transform.engine=') ||
-    url.includes('unstable_transformProfile=') ||
-    url.startsWith('/src/') ||
-    url.startsWith('/node_modules/') ||
-    url.startsWith('/index.bundle')
-  );
+const isApiPath = (path: string) => {
+  return path.startsWith('/api/') || path.startsWith('/_create/');
 };
 
-const isFirstPartyURL = (url: string) => {
-  if (isMetroDevRequest(url)) return false;
-  const firstPartyURL = process.env.EXPO_PUBLIC_BASE_URL;
-  const secondPartyURL = process.env.EXPO_PUBLIC_PROXY_BASE_URL;
-  const rewrittenFirst = rewriteLocalhostUrl(firstPartyURL || '');
-  const rewrittenSecond = rewriteLocalhostUrl(secondPartyURL || '');
+function parseUrl(url: string) {
+  try {
+    if (url.startsWith('/')) {
+      return { host: '', hostname: '', pathname: url.split('?')[0], pathWithQuery: url };
+    }
+    const parsed = new URL(url);
+    return {
+      host: parsed.host,
+      hostname: parsed.hostname,
+      pathname: parsed.pathname,
+      pathWithQuery: `${parsed.pathname}${parsed.search}`,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function currentPageHost() {
+  if (typeof window === 'undefined' || !window.location) return '';
+  return window.location.host;
+}
+
+function isLoopbackHostname(hostname: string) {
+  return hostname === 'localhost' || hostname === '127.0.0.1';
+}
+
+function isApiBackendHost(host: string, hostname: string) {
+  if (!host) return false;
+  if (host === currentPageHost()) return false;
+
+  const apiHosts = new Set(['chainly.club', 'www.chainly.club']);
+  for (const raw of [
+    process.env.EXPO_PUBLIC_PROXY_BASE_URL,
+    process.env.EXPO_PUBLIC_BASE_URL,
+  ]) {
+    if (!raw) continue;
+    try {
+      apiHosts.add(new URL(raw).host);
+    } catch {
+      // ignore
+    }
+  }
+  if (process.env.EXPO_PUBLIC_HOST) {
+    apiHosts.add(String(process.env.EXPO_PUBLIC_HOST).split('/')[0]);
+  }
+
+  if (apiHosts.has(host)) return true;
+  // Backend on :8000 vs Expo on :8081 — both look like localhost.
+  if (isLoopbackHostname(hostname) && host !== currentPageHost()) return true;
+  return false;
+}
+
+/**
+ * Expo Router prefixes app routes with EXPO_PUBLIC_BASE_URL / PROXY.
+ * Those must stay SPA routes, not FastAPI 404 JSON pages.
+ */
+function localAppPathFromUrl(url: string) {
+  const parsed = parseUrl(url);
+  if (!parsed) return null;
+  if (isApiPath(parsed.pathname)) return null;
+
+  if (url.startsWith('/')) {
+    return parsed.pathWithQuery;
+  }
+
+  if (isApiBackendHost(parsed.host, parsed.hostname)) {
+    return parsed.pathWithQuery.startsWith('/')
+      ? parsed.pathWithQuery
+      : `/${parsed.pathWithQuery}`;
+  }
+
+  return null;
+}
+
+function apiRoot() {
   return (
-    url.startsWith('/') ||
-    (!!firstPartyURL && url.startsWith(firstPartyURL)) ||
-    (!!secondPartyURL && url.startsWith(secondPartyURL)) ||
-    (!!rewrittenFirst && url.startsWith(rewrittenFirst)) ||
-    (!!rewrittenSecond && url.startsWith(rewrittenSecond))
+    process.env.EXPO_PUBLIC_PROXY_BASE_URL ||
+    process.env.EXPO_PUBLIC_BASE_URL ||
+    ''
+  );
+}
+
+const isFirstPartyURL = (url: string) => {
+  if (localAppPathFromUrl(url)) return false;
+  const root = rewriteLocalhostUrl(apiRoot());
+  return (
+    isApiPath(url) ||
+    (!!root && url.startsWith(`${root}/api/`)) ||
+    (!!root && url.startsWith(`${root}/_create/`))
   );
 };
 
@@ -55,20 +128,19 @@ const isSecondPartyURL = (url: string) => {
 
 type Params = Parameters<typeof expoFetch>;
 const fetchToWeb = async function fetchWithHeaders(...args: Params) {
-  const firstPartyURL = process.env.EXPO_PUBLIC_BASE_URL;
-  const secondPartyURL = process.env.EXPO_PUBLIC_PROXY_BASE_URL;
   const [input, init] = args;
   const url = getURLFromArgs(input, init);
   if (!url) {
-    return expoFetch(input, init);
+    return originalFetch(input, init);
   }
 
   if (isFileURL(url)) {
     return originalFetch(input, init);
   }
 
-  if (isMetroDevRequest(url)) {
-    return originalFetch(input, init);
+  const localAppPath = localAppPathFromUrl(url);
+  if (localAppPath) {
+    return originalFetch(localAppPath, init);
   }
 
   const rewrittenUrl = rewriteLocalhostUrl(url);
@@ -76,35 +148,43 @@ const fetchToWeb = async function fetchWithHeaders(...args: Params) {
     return fetchToWeb(rewrittenUrl, init);
   }
 
-  const isExternalFetch = !isFirstPartyURL(url);
-  // we should not add headers to requests that don't go to our own server
-  if (isExternalFetch) {
-    return expoFetch(input, init);
+  if (!isFirstPartyURL(url)) {
+    return originalFetch(input, init);
   }
 
-  let finalInput = input;
-  const rawBaseURL = (isSecondPartyURL(url) && secondPartyURL) ? secondPartyURL : firstPartyURL;
+  const proxyURL = process.env.EXPO_PUBLIC_PROXY_BASE_URL;
+  const firstPartyURL = process.env.EXPO_PUBLIC_BASE_URL;
+  const rawBaseURL =
+    isSecondPartyURL(url) && proxyURL
+      ? proxyURL
+      : proxyURL || firstPartyURL;
   const baseURL = rewriteLocalhostUrl(rawBaseURL || '');
-  
-  if (!baseURL && url.startsWith('/')) {
+
+  if (!baseURL && isApiPath(url)) {
     console.warn(`[fetch] No base URL found for internal request: ${url}`);
   }
 
+  let finalInput = input;
   if (typeof input === 'string') {
     finalInput = input.startsWith('/') ? `${baseURL || ''}${input}` : input;
   } else {
-    return expoFetch(input, init);
+    return originalFetch(input, init);
   }
 
   const initHeaders = init?.headers ?? {};
   const finalHeaders = new Headers(initHeaders);
 
-  const headers = {
+  const headers: Record<string, string | undefined> = {
     'x-createxyz-project-group-id': process.env.EXPO_PUBLIC_PROJECT_GROUP_ID,
-    host: process.env.EXPO_PUBLIC_HOST,
-    'x-forwarded-host': process.env.EXPO_PUBLIC_HOST,
-    'x-createxyz-host': process.env.EXPO_PUBLIC_HOST,
+    'ngrok-skip-browser-warning': 'true',
   };
+
+  if (Platform.OS !== 'web') {
+    const apiHost = rewriteLocalhostHost(process.env.EXPO_PUBLIC_HOST);
+    headers.host = apiHost;
+    headers['x-forwarded-host'] = apiHost;
+    headers['x-createxyz-host'] = apiHost;
+  }
 
   for (const [key, value] of Object.entries(headers)) {
     if (value) {
@@ -113,8 +193,8 @@ const fetchToWeb = async function fetchWithHeaders(...args: Params) {
   }
 
   const auth = await SecureStore.getItemAsync(authKey)
-    .then((auth) => {
-      return auth ? JSON.parse(auth) : null;
+    .then((stored) => {
+      return stored ? JSON.parse(stored) : null;
     })
     .catch(() => {
       return null;
