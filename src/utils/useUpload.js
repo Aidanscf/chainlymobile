@@ -1,6 +1,5 @@
-import * as React from 'react';
-import { UploadClient } from '@uploadcare/upload-client'
-const client = new UploadClient({ publicKey: process.env.EXPO_PUBLIC_UPLOADCARE_PUBLIC_KEY });
+import * as React from "react";
+import { apiUploadFile } from "@/services/apiClient";
 
 function useUpload() {
   const [loading, setLoading] = React.useState(false);
@@ -10,45 +9,19 @@ function useUpload() {
       let response;
 
       if ("reactNativeAsset" in input && input.reactNativeAsset) {
-        let asset = input.reactNativeAsset;
-
-        if (asset.file) {
-          const formData = new FormData();
-          formData.append("file", asset.file);
-
-          response = await fetch("/_create/api/upload/", {
-            method: "POST",
-            body: formData,
-          });
-        } else {
-          // Fallback to presigned Uploadcare upload
-          console.log("[useUpload] Requesting presigned URL...");
-          const presignRes = await fetch("/_create/api/upload/presign/", {
-            method: "POST",
-          });
-
-          if (!presignRes.ok) {
-            const errorText = await presignRes.text();
-            console.error("[useUpload] Presign request failed:", presignRes.status, errorText);
-            throw new Error(`Failed to get upload signature: ${presignRes.status}`);
-          }
-
-          const { secureSignature, secureExpire } = await presignRes.json();
-          console.log("[useUpload] Got signature, uploading to storage...");
-
-          const result = await client.uploadFile(asset, {
-            fileName: asset.name ?? asset.uri.split("/").pop(),
-            contentType: asset.mimeType,
-            secureSignature,
-            secureExpire
-          });
-          
-          console.log("[useUpload] Storage upload successful:", result.uuid);
-          return { 
-            url: `${process.env.EXPO_PUBLIC_BASE_CREATE_USER_CONTENT_URL}/${result.uuid}/`, 
-            mimeType: result.mimeType || asset.mimeType || null 
-          };
+        const asset = input.reactNativeAsset;
+        const uri = asset?.uri ? String(asset.uri) : "";
+        if (!uri) {
+          throw new Error("Couldn't read the image.");
         }
+        const mimeType =
+          asset.mimeType ||
+          (String(asset.type || "").startsWith("image/")
+            ? String(asset.type)
+            : "image/jpeg");
+        const name = asset.fileName || asset.name || undefined;
+        const url = await apiUploadFile(uri, { name, mimeType });
+        return { url, mimeType };
       } else if ("url" in input) {
         response = await fetch("/_create/api/upload/", {
           method: "POST",

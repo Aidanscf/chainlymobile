@@ -20,16 +20,67 @@ import {
   X,
 } from "lucide-react-native";
 import useUser from "@/utils/auth/useUser";
+import { apiFetch } from "@/services/apiClient";
 import { colors, spacing, radius, typography } from "@/theme/index";
 import ScreenHeader from "@/components/layout/ScreenHeader";
+
+function asNumber(value, fallback = 0) {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+function parseGoalList(list) {
+  if (!Array.isArray(list)) return [];
+  return list.map((goal) => ({
+    threshold_value: asNumber(goal?.threshold_value),
+    completed: Boolean(goal?.completed),
+  }));
+}
+
+function parseRidingGoals(data) {
+  return {
+    personalBests: {
+      jump: asNumber(data?.personalBests?.jump),
+      drop: asNumber(data?.personalBests?.drop),
+    },
+    goals: {
+      jump: parseGoalList(data?.goals?.jump),
+      drop: parseGoalList(data?.goals?.drop),
+    },
+  };
+}
+
+function parseRidingLogs(data) {
+  const logs = Array.isArray(data?.logs) ? data.logs : [];
+  return logs.map((log) => ({
+    id: log?.id == null ? "" : String(log.id),
+    type: log?.type == null ? "" : String(log.type),
+    status: log?.status == null ? "" : String(log.status),
+    measured_value:
+      log?.measured_value == null ? null : asNumber(log.measured_value, null),
+    confidence:
+      log?.confidence == null ? null : asNumber(log.confidence, null),
+    created_at: log?.created_at == null ? "" : String(log.created_at),
+    image_url: log?.image_url == null ? null : String(log.image_url),
+    bike_id: log?.bike_id == null ? null : String(log.bike_id),
+  }));
+}
+
+function apiDetail(error) {
+  if (error && typeof error.detail === "string" && error.detail) {
+    return error.detail;
+  }
+  return "Couldn’t load riding logs";
+}
 
 export default function RidingLogsScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { data: user } = useUser();
+  const { data: user, loading: authLoading } = useUser();
 
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState("");
   const [personalBests, setPersonalBests] = useState({
     jump: null,
     drop: null,
@@ -41,31 +92,34 @@ export default function RidingLogsScreen() {
   const [goalsModalType, setGoalsModalType] = useState(null); // 'jump' or 'drop'
 
   useEffect(() => {
-    if (user) {
-      loadData();
+    if (authLoading) {
+      return;
     }
-  }, [user]);
+    if (!user) {
+      setLoading(false);
+      setError("Not authenticated");
+      return;
+    }
+    loadData();
+  }, [user, authLoading]);
 
   const loadData = async () => {
     try {
       setLoading(true);
+      setError("");
 
-      // Fetch goals and personal bests
-      const goalsRes = await fetch("/api/riding-goals");
-      if (goalsRes.ok) {
-        const goalsData = await goalsRes.json();
-        setPersonalBests(goalsData.personalBests);
-        setGoals(goalsData.goals);
-      }
-
-      // Fetch logs
-      const logsRes = await fetch("/api/riding-logs");
-      if (logsRes.ok) {
-        const logsData = await logsRes.json();
-        setLogs(logsData.logs);
-      }
-    } catch (error) {
-      console.error("Error loading riding logs data:", error);
+      const [goalsData, logsData] = await Promise.all([
+        apiFetch("/api/riding-goals", { method: "GET" }),
+        apiFetch("/api/riding-logs", { method: "GET" }),
+      ]);
+      const parsedGoals = parseRidingGoals(goalsData);
+      setPersonalBests(parsedGoals.personalBests);
+      setGoals(parsedGoals.goals);
+      setLogs(parseRidingLogs(logsData));
+    } catch (loadError) {
+      const detail = apiDetail(loadError);
+      setError(detail);
+      console.error(detail);
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -176,6 +230,20 @@ export default function RidingLogsScreen() {
           />
         }
       >
+        {error ? (
+          <Text
+            style={{
+              marginHorizontal: spacing.xl,
+              marginBottom: spacing.lg,
+              color: colors.danger,
+              fontSize: typography.sm,
+              fontFamily: typography.fontFamily.semibold,
+            }}
+          >
+            {error}
+          </Text>
+        ) : null}
+
         {/* Personal Bests */}
         <View
           style={{ paddingHorizontal: spacing.xl, marginBottom: spacing.xxl }}
@@ -229,9 +297,11 @@ export default function RidingLogsScreen() {
                   letterSpacing: -0.6,
                 }}
               >
-                {personalBests.jump ? `${personalBests.jump}` : "—"}
+                {Number.isFinite(personalBests.jump)
+                  ? `${personalBests.jump}`
+                  : "—"}
               </Text>
-              {personalBests.jump && (
+              {Number.isFinite(personalBests.jump) && (
                 <Text
                   style={{
                     fontSize: typography.base,
@@ -272,9 +342,11 @@ export default function RidingLogsScreen() {
                   letterSpacing: -0.6,
                 }}
               >
-                {personalBests.drop ? `${personalBests.drop}` : "—"}
+                {Number.isFinite(personalBests.drop)
+                  ? `${personalBests.drop}`
+                  : "—"}
               </Text>
-              {personalBests.drop && (
+              {Number.isFinite(personalBests.drop) && (
                 <Text
                   style={{
                     fontSize: typography.base,
@@ -361,9 +433,9 @@ export default function RidingLogsScreen() {
                 gap: spacing.sm,
               }}
             >
-              {goals.jump.slice(0, 6).map((goal) => (
+              {goals.jump.slice(0, 6).map((goal, idx) => (
                 <View
-                  key={goal.id}
+                  key={`jump-${goal.threshold_value}-${idx}`}
                   style={{
                     flexDirection: "row",
                     alignItems: "center",
@@ -446,9 +518,9 @@ export default function RidingLogsScreen() {
                 gap: spacing.sm,
               }}
             >
-              {goals.drop.slice(0, 6).map((goal) => (
+              {goals.drop.slice(0, 6).map((goal, idx) => (
                 <View
-                  key={goal.id}
+                  key={`drop-${goal.threshold_value}-${idx}`}
                   style={{
                     flexDirection: "row",
                     alignItems: "center",
@@ -658,9 +730,9 @@ function GoalsTiersView({ tiers, type }) {
           {title}
         </Text>
         <View style={{ gap: spacing.sm }}>
-          {goalsList.map((goal) => (
+          {goalsList.map((goal, idx) => (
             <View
-              key={goal.id}
+              key={`${goal.threshold_value}-${idx}`}
               style={{
                 backgroundColor: colors.surface,
                 borderRadius: radius.xl,
@@ -776,11 +848,21 @@ function LogCard({ log }) {
     >
       <View style={{ flexDirection: "row" }}>
         {/* Image Thumbnail */}
-        <Image
-          source={{ uri: log.image_url }}
-          style={{ width: 100, height: 100 }}
-          resizeMode="cover"
-        />
+        {log.image_url ? (
+          <Image
+            source={{ uri: log.image_url }}
+            style={{ width: 100, height: 100 }}
+            resizeMode="cover"
+          />
+        ) : (
+          <View
+            style={{
+              width: 100,
+              height: 100,
+              backgroundColor: colors.surfaceWarm,
+            }}
+          />
+        )}
 
         {/* Log Info */}
         <View

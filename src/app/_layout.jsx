@@ -63,6 +63,9 @@ function AppDataBootstrap() {
   const hydratePresetsFromLocal = useSuspensionStore(
     (s) => s.hydratePresetsFromLocal,
   );
+  const hydrateDiagnosisHistory = useChainlyStore(
+    (s) => s.hydrateDiagnosisHistory,
+  );
 
   useEffect(() => {
     const hydrateData = async () => {
@@ -85,6 +88,9 @@ function AppDataBootstrap() {
         if (typeof hydratePresetsFromLocal === "function") {
           await hydratePresetsFromLocal();
         }
+        if (typeof hydrateDiagnosisHistory === "function") {
+          await hydrateDiagnosisHistory();
+        }
       } catch (error) {
         console.error("Error during data hydration:", error);
       }
@@ -99,6 +105,7 @@ function AppDataBootstrap() {
     hydrateRidesFromLocal,
     hydrateSettings,
     hydratePresetsFromLocal,
+    hydrateDiagnosisHistory,
   ]);
 
   return null;

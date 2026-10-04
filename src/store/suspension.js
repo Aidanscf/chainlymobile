@@ -518,7 +518,7 @@ export const useSuspensionStore = create((set, get) => ({
   },
 
   // ---- Presets ----
-  savePresetFromSession: ({ name, terrainTag, weatherTag }) => {
+  savePresetFromSession: ({ name, terrainTag, weatherTag, notes }) => {
     const s = get().session;
     if (!s.bikeId || !s.forkSettings || !s.shockSettings) {
       throw new Error("Missing session data to save preset");
@@ -538,7 +538,7 @@ export const useSuspensionStore = create((set, get) => ({
       shockSettings: s.shockSettings,
       createdAt,
       lastUsedAt: null,
-      notes: "",
+      notes: safeString(notes || ""),
     };
 
     set((state) => ({

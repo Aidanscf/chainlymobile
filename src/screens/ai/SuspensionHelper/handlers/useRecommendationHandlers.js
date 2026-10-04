@@ -15,8 +15,6 @@ export function useRecommendationHandlers(
   const savePresetFromSession = useSuspensionStore(
     (s) => s.savePresetFromSession,
   );
-  const updatePresetNotes = useSuspensionStore((s) => s.updatePresetNotes);
-
   const onAcceptRecommendation = useCallback(async () => {
     if (!recommended) return;
 
@@ -57,15 +55,12 @@ export function useRecommendationHandlers(
               setSessionField("forkSettings", active.forkSettings);
               setSessionField("shockSettings", nextShock);
 
-              const created = savePresetFromSession({
+              savePresetFromSession({
                 name: `${active.name || "Preset"} + Tweaks`,
                 terrainTag: active.terrainTag,
                 weatherTag: active.weatherTag,
+                notes: `Auto-saved from recommendation (${nowIso().slice(0, 10)}).`,
               });
-              updatePresetNotes(
-                created.id,
-                `Auto-saved from recommendation (${nowIso().slice(0, 10)}).`,
-              );
               setRecState({ status: "accepted" });
               showToast("Saved as new preset");
             } catch (e) {
@@ -83,7 +78,6 @@ export function useRecommendationHandlers(
     session.activePresetId,
     setSessionField,
     showToast,
-    updatePresetNotes,
     setRecState,
   ]);
 

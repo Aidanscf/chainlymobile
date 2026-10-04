@@ -54,7 +54,7 @@ export function ResultsStep({
         </AppCard>
       ) : null}
 
-      <ResourcesCard resources={resources} />
+      {resources.length ? <ResourcesCard resources={resources} /> : null}
     </View>
   );
 }

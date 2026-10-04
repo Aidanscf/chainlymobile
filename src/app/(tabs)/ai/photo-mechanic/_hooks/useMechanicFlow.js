@@ -2,6 +2,7 @@ import { useState, useMemo, useCallback } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { apiFetch } from "@/services/apiClient";
 import { buildIssueText } from "../_utils/textHelpers";
+import { useChainlyStore } from "@/store/chainlyStore";
 
 export function useMechanicFlow(bikeProfile) {
   const [step, setStep] = useState("describe"); // describe | questions | results
@@ -68,8 +69,12 @@ export function useMechanicFlow(bikeProfile) {
       });
     },
     onSuccess: (data) => {
-      setDiagnosis(data?.diagnosis || null);
+      const next = data?.diagnosis || null;
+      setDiagnosis(next);
       setStep("results");
+      if (next) {
+        useChainlyStore.getState().recordMechanicChat?.(next);
+      }
     },
     onError: (error) => {
       console.error(error);

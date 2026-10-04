@@ -21,8 +21,26 @@ export const AuthWebView = ({ mode, proxyURL, baseURL }) => {
   const hydrated = useAuthStore((s) => s.hydrated);
   const status = useAuthStore((s) => s.status);
   const handleAuthCallback = useAuthStore((s) => s.handleAuthCallback);
+  const exchangeAuthToken = useAuthStore((s) => s.exchangeAuthToken);
   const isAuthenticated = hydrated ? status === "authenticated" : null;
   const iframeRef = useRef(null);
+  const exchangeStartedRef = useRef(false);
+
+  const exchangeSession = (requestUrl) => {
+    if (exchangeStartedRef.current) {
+      return;
+    }
+    exchangeStartedRef.current = true;
+    exchangeAuthToken(requestUrl).catch((err) => {
+      exchangeStartedRef.current = false;
+      const detail =
+        err && typeof err.detail === "string" && err.detail
+          ? err.detail
+          : "Not authenticated";
+      console.error("[AuthWebView]", detail);
+      useAuthStore.setState({ error: detail });
+    });
+  };
   useEffect(() => {
     if (isAuthenticated) {
       return;
@@ -87,23 +105,7 @@ export const AuthWebView = ({ mode, proxyURL, baseURL }) => {
       onShouldStartLoadWithRequest={(request) => {
         // If we hit the token endpoint, intercept it and fetch the JWT
         if (request.url.includes(callbackUrl)) {
-          const fetchToken = async () => {
-            try {
-              const tokenUrl = rewriteLocalhostUrl(request.url);
-              const response = await fetch(tokenUrl);
-              const data = await response.json();
-              if (data?.jwt) {
-                handleAuthCallback({
-                  jwt: data.jwt,
-                  user: data.user,
-                  refreshToken: data.refreshToken,
-                });
-              }
-            } catch (err) {
-              console.error("Failed to fetch auth token:", err);
-            }
-          };
-          fetchToken();
+          exchangeSession(rewriteLocalhostUrl(request.url));
           return false;
         }
 
@@ -113,28 +115,7 @@ export const AuthWebView = ({ mode, proxyURL, baseURL }) => {
       onNavigationStateChange={(navState) => {
         // Backup check for the token URL in case onShouldStartLoadWithRequest missed it
         if (navState.url.includes(callbackUrl)) {
-          const fetchToken = async () => {
-            try {
-              const tokenUrl = rewriteLocalhostUrl(navState.url);
-              console.log("[AuthWebView] Fetching token from:", tokenUrl);
-              const response = await fetch(tokenUrl);
-              console.log("[AuthWebView] Token response status:", response.status);
-              const data = await response.json();
-              console.log("[AuthWebView] Token data received:", !!data?.jwt);
-              if (data?.jwt) {
-                handleAuthCallback({
-                  jwt: data.jwt,
-                  user: data.user,
-                  refreshToken: data.refreshToken,
-                });
-              } else {
-                console.error("[AuthWebView] No JWT in response data");
-              }
-            } catch (err) {
-              console.error("Failed to fetch auth token:", err);
-            }
-          };
-          fetchToken();
+          exchangeSession(rewriteLocalhostUrl(navState.url));
         }
       }}
       javaScriptEnabled={true}

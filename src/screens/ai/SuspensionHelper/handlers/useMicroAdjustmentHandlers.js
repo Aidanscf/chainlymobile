@@ -13,7 +13,6 @@ export function useMicroAdjustmentHandlers(
   const savePresetFromSession = useSuspensionStore(
     (s) => s.savePresetFromSession,
   );
-  const updatePresetNotes = useSuspensionStore((s) => s.updatePresetNotes);
 
   const onApplyMicroTemporary = useCallback(() => {
     if (!microItem) return;
@@ -74,16 +73,12 @@ export function useMicroAdjustmentHandlers(
       setSessionField("forkSettings", forkNext);
       setSessionField("shockSettings", shockNext);
 
-      const created = savePresetFromSession({
+      savePresetFromSession({
         name: `${active.name || "Preset"} • ${microItem.title}`,
         terrainTag: active.terrainTag,
         weatherTag: active.weatherTag,
+        notes: `Micro-adjustment: ${microItem.title}.\n${microItem.explanation}`,
       });
-
-      updatePresetNotes(
-        created.id,
-        `Micro-adjustment: ${microItem.title}.\n${microItem.explanation}`,
-      );
 
       setMicroOpen(false);
       showToast("Saved as new preset");
@@ -98,7 +93,6 @@ export function useMicroAdjustmentHandlers(
     session.activePresetId,
     setSessionField,
     showToast,
-    updatePresetNotes,
     setMicroOpen,
   ]);
 

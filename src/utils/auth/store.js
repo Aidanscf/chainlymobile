@@ -29,8 +29,46 @@ function normalizeUser(raw) {
   if (!email) {
     return null;
   }
-  const name = raw.name == null ? null : String(raw.name).trim();
-  return { id, email, ...(name ? { name } : {}) };
+  const name =
+    raw.name == null || String(raw.name).trim() === ""
+      ? null
+      : String(raw.name).trim();
+  return { id, email, name };
+}
+
+function apiFailure(error, fallback) {
+  const detail =
+    error && typeof error.detail === "string" && error.detail
+      ? error.detail
+      : error?.message || fallback;
+  const err = new Error(detail);
+  err.status = error?.status;
+  err.detail = detail;
+  return err;
+}
+
+async function clearLocalAuth(set) {
+  try {
+    await AsyncStorage.removeItem(AUTH_STORAGE_KEY);
+  } catch (e) {
+    console.error(e);
+  }
+
+  set({
+    status: "anonymous",
+    user: null,
+    accessToken: null,
+    refreshToken: null,
+    lastLoginAt: null,
+    localDataHasUnsyncedChanges: false,
+    error: null,
+  });
+
+  try {
+    useAuthModal.getState().close();
+  } catch (e) {
+    // no-op
+  }
 }
 
 async function persistAuthState(state) {
@@ -115,6 +153,16 @@ export const useAuthStore = create((set, get) => ({
           localDataHasUnsyncedChanges,
         });
         devLog("hydrated authenticated", { email: user.email });
+        try {
+          await get().refreshMe();
+        } catch (e) {
+          if (e?.status !== 401 && e?.status !== 403) {
+            console.warn(
+              "[auth] could not restore user:",
+              e?.detail || e?.message || e,
+            );
+          }
+        }
       } else {
         await AsyncStorage.removeItem(AUTH_STORAGE_KEY);
         set({
@@ -207,6 +255,72 @@ export const useAuthStore = create((set, get) => ({
     return { ok: true, user };
   },
 
+  refreshMe: async () => {
+    if (get().status !== "authenticated" || !get().accessToken) {
+      return null;
+    }
+
+    const { apiFetch } = await import("@/services/apiClient");
+    try {
+      const data = await apiFetch("/api/auth/me", { method: "GET" });
+      const user = normalizeUser(data?.user);
+      if (!user?.id || !user?.email) {
+        throw apiFailure({ status: 401, detail: "Invalid token" }, "Invalid token");
+      }
+      set({ user });
+      await persistAuthState({ ...get(), user });
+      devLog("restored user", { email: user.email });
+      return user;
+    } catch (e) {
+      const failure = apiFailure(e, "Not authenticated");
+      if (failure.status === 401 || failure.status === 403) {
+        await clearLocalAuth(set);
+      }
+      throw failure;
+    }
+  },
+
+  exchangeAuthToken: async (requestUrl) => {
+    let queryToken = null;
+    if (typeof requestUrl === "string" && requestUrl) {
+      try {
+        const url = new URL(requestUrl);
+        queryToken = url.searchParams.get("token") || url.searchParams.get("jwt");
+      } catch (e) {
+        queryToken = null;
+      }
+    }
+
+    const stored = get().accessToken ? String(get().accessToken) : "";
+    const bearer = stored || (queryToken ? String(queryToken) : "");
+    if (!bearer) {
+      throw apiFailure(
+        { status: 401, detail: "Not authenticated" },
+        "Not authenticated",
+      );
+    }
+
+    const { apiFetch } = await import("@/services/apiClient");
+    let data;
+    try {
+      data = await apiFetch("/api/auth/token", {
+        method: "GET",
+        headers: stored ? undefined : { Authorization: `Bearer ${bearer}` },
+      });
+    } catch (e) {
+      throw apiFailure(e, "Not authenticated");
+    }
+
+    const jwt = data?.jwt ? String(data.jwt) : "";
+    const refreshToken = data?.refreshToken ? String(data.refreshToken) : "";
+    const user = normalizeUser(data?.user);
+    if (!jwt || !refreshToken || !user?.email) {
+      throw apiFailure({ status: 401, detail: "Invalid token" }, "Invalid token");
+    }
+
+    return get().handleAuthCallback({ jwt, user, refreshToken });
+  },
+
   logout: async () => {
     devLog("logout");
 
@@ -221,30 +335,10 @@ export const useAuthStore = create((set, get) => ({
         body: JSON.stringify({ refreshToken }),
       });
     } catch (e) {
-      console.warn("[auth] server logout failed:", e?.message || e);
+      console.warn("[auth] server logout failed:", e?.detail || e?.message || e);
     }
 
-    try {
-      await AsyncStorage.removeItem(AUTH_STORAGE_KEY);
-    } catch (e) {
-      console.error(e);
-    }
-
-    set({
-      status: "anonymous",
-      user: null,
-      accessToken: null,
-      refreshToken: null,
-      lastLoginAt: null,
-      localDataHasUnsyncedChanges: false,
-      error: null,
-    });
-
-    try {
-      useAuthModal.getState().close();
-    } catch (e) {
-      // no-op
-    }
+    await clearLocalAuth(set);
   },
 }));
 

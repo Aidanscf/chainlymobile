@@ -100,8 +100,7 @@ function nativeLoopbackHost() {
   return Platform.OS === "ios" ? "localhost" : null;
 }
 
-const DEFAULT_API_BASE_URL =
-  "https://now-interconvertible-laquita.ngrok-free.dev";
+const DEFAULT_API_BASE_URL = "https://chainly.club";
 
 let loggedApiBase = false;
 

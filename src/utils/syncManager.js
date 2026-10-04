@@ -20,7 +20,21 @@ function devLog(...args) {
 let appStateSub = null;
 let didInit = false;
 let initialSyncUserId = null;
+let initialSyncPromise = null;
 let flushing = false;
+
+function withOnboardingFlag(settings, completed) {
+  if (!completed) return settings;
+  return {
+    ...settings,
+    onboarding: {
+      ...(settings?.onboarding || {}),
+      onboardingComplete: true,
+      completedAt:
+        settings?.onboarding?.completedAt || new Date().toISOString(),
+    },
+  };
+}
 
 async function syncProfileWithServer() {
   const settingsState = useSettingsStore.getState();
@@ -40,6 +54,8 @@ async function syncProfileWithServer() {
 
   const serverProfile = server?.profile || null;
   const serverUpdatedAt = server?.updatedAt ? String(server.updatedAt) : null;
+  const serverOnboardingDone = serverProfile?.onboardingCompleted === true;
+  const localOnboardingDone = !!localSettings?.onboarding?.onboardingComplete;
 
   const serverIsNewer =
     !!serverUpdatedAt &&
@@ -71,13 +87,31 @@ async function syncProfileWithServer() {
       },
     };
 
-    await settingsState.setSettings(next);
+    const latest = useSettingsStore.getState().settings || localSettings;
+    const completed =
+      serverOnboardingDone || !!latest?.onboarding?.onboardingComplete;
+    await settingsState.setSettings(
+      withOnboardingFlag(
+        {
+          ...next,
+          onboarding: latest.onboarding || next.onboarding,
+        },
+        completed,
+      ),
+    );
     devLog("profile pulled", serverUpdatedAt);
     return { ok: true, direction: "pulled" };
   }
 
   // Local wins (or server empty): push local -> server (best-effort)
   try {
+    const latest = useSettingsStore.getState().settings || localSettings;
+    const completed =
+      serverOnboardingDone || !!latest?.onboarding?.onboardingComplete;
+    if (completed && !localOnboardingDone) {
+      await settingsState.setSettings(withOnboardingFlag(latest, true));
+    }
+
     const payload = {
       userProfile: localSettings.userProfile || {},
       notificationPrefs: localSettings.notificationPrefs || {},
@@ -86,6 +120,9 @@ async function syncProfileWithServer() {
       syncMeta: {
         profileUpdatedAt: localProfileUpdatedAt || new Date().toISOString(),
       },
+      ...(completed && !serverOnboardingDone
+        ? { onboardingCompleted: true }
+        : {}),
     };
 
     const res = await apiFetch("/api/profile", {
@@ -289,7 +326,7 @@ export async function runInitialSyncOnce({ reason } = {}) {
   }
 
   if (initialSyncUserId === userId) {
-    return { ok: true, skipped: true, reason: "already" };
+    return initialSyncPromise || { ok: true, skipped: true, reason: "already" };
   }
 
   initialSyncUserId = userId;
@@ -297,26 +334,30 @@ export async function runInitialSyncOnce({ reason } = {}) {
   useSyncStore.getState().setSyncing(true);
   useSyncStore.getState().clearError();
 
-  try {
-    devLog("initial sync start", { reason: reason || "unknown", userId });
+  initialSyncPromise = (async () => {
+    try {
+      devLog("initial sync start", { reason: reason || "unknown", userId });
 
-    await syncProfileWithServer();
-    await syncBikesRidesPresetsFromServer();
-    await flushOutbox({ reason: "initial" });
+      await syncProfileWithServer();
+      await syncBikesRidesPresetsFromServer();
+      await flushOutbox({ reason: "initial" });
 
-    await useSyncStore.getState().setLastSyncedAt(new Date().toISOString());
+      await useSyncStore.getState().setLastSyncedAt(new Date().toISOString());
 
-    devLog("initial sync done");
-    return { ok: true };
-  } catch (e) {
-    console.error(e);
-    useSyncStore
-      .getState()
-      .setError("Could not sync. You can keep using Chainly offline.");
-    return { ok: false };
-  } finally {
-    useSyncStore.getState().setSyncing(false);
-  }
+      devLog("initial sync done");
+      return { ok: true };
+    } catch (e) {
+      console.error(e);
+      useSyncStore
+        .getState()
+        .setError("Could not sync. You can keep using Chainly offline.");
+      return { ok: false };
+    } finally {
+      useSyncStore.getState().setSyncing(false);
+    }
+  })();
+
+  return initialSyncPromise;
 }
 
 export async function runManualSync({ reason } = {}) {

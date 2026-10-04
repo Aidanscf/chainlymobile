@@ -1,8 +1,10 @@
 import { Redirect } from "expo-router";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { ActivityIndicator, View } from "react-native";
 
 import useSettingsStore from "@/store/settings";
+import { useAuthStore } from "@/utils/auth/store";
+import { runInitialSyncOnce } from "@/utils/syncManager";
 
 export default function Index() {
   const hydrated = useSettingsStore((s) => s.hydrated);
@@ -10,6 +12,9 @@ export default function Index() {
   const onboardingComplete = useSettingsStore(
     (s) => !!s.settings?.onboarding?.onboardingComplete,
   );
+  const authHydrated = useAuthStore((s) => s.hydrated);
+  const authStatus = useAuthStore((s) => s.status);
+  const [gateReady, setGateReady] = useState(false);
 
   useEffect(() => {
     // Defensive: RootLayout hydrates, but this prevents edge cases on fast reloads.
@@ -18,7 +23,30 @@ export default function Index() {
     }
   }, [hydrate, hydrated]);
 
-  if (!hydrated) {
+  useEffect(() => {
+    if (!hydrated || !authHydrated) return;
+    let cancelled = false;
+
+    const decide = async () => {
+      const alreadyDone =
+        !!useSettingsStore.getState().settings?.onboarding?.onboardingComplete;
+      if (authStatus === "authenticated" && !alreadyDone) {
+        try {
+          await runInitialSyncOnce({ reason: "boot-gate" });
+        } catch (e) {
+          console.error(e);
+        }
+      }
+      if (!cancelled) setGateReady(true);
+    };
+
+    decide();
+    return () => {
+      cancelled = true;
+    };
+  }, [authHydrated, authStatus, hydrated]);
+
+  if (!hydrated || !authHydrated || !gateReady) {
     return (
       <View
         style={{

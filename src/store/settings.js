@@ -1,5 +1,7 @@
 import { create } from "zustand";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { apiFetch } from "@/services/apiClient";
+import { isServerSyncActive } from "@/utils/serverSync";
 
 const STORAGE_KEY = "chainly_settings_v1";
 
@@ -298,6 +300,15 @@ export const useSettingsStore = create((set, get) => ({
 
     set({ settings: withMappings });
     await persist(withMappings);
+
+    if (isServerSyncActive()) {
+      apiFetch("/api/profile", {
+        method: "PUT",
+        body: JSON.stringify({ onboardingCompleted: true }),
+      }).catch((e) => {
+        console.error(e);
+      });
+    }
   },
 
   toggleDeveloper: async () => {

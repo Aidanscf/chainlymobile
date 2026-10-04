@@ -66,10 +66,25 @@ export async function apiFetch(path, options) {
 
     if (!response.ok) {
       const text = await response.text().catch(() => "");
-      const detail = text ? ` - ${text}` : "";
-      throw new Error(
-        `When fetching ${path}, the response was [${response.status}] ${response.statusText}${detail}`,
+      let detail = null;
+      if (text) {
+        try {
+          const parsed = JSON.parse(text);
+          if (parsed && typeof parsed.detail === "string") {
+            detail = parsed.detail;
+          }
+        } catch {
+          // Non-JSON error body.
+        }
+      }
+      const err = new Error(
+        `When fetching ${path}, the response was [${response.status}] ${response.statusText}${
+          text ? ` - ${text}` : ""
+        }`,
       );
+      err.status = response.status;
+      err.detail = detail;
+      throw err;
     }
 
     const contentType = response.headers.get("content-type") || "";
@@ -139,6 +154,7 @@ export async function apiUploadFile(fileUri, { name, mimeType } = {}) {
   const type = mimeType || "application/octet-stream";
 
   const headers = {
+    "ngrok-skip-browser-warning": "true",
     "x-chainly-user-id": userId,
     ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
   };

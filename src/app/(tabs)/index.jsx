@@ -13,6 +13,8 @@ import { useUserCharacter } from "@/store/userCharacter";
 import { useMediaAnalyzerStore } from "@/store/mediaAnalyzer";
 import { computeMaintenanceQuests } from "@/utils/maintenanceQuests";
 import { FEATURE_TRIP_PLANNER_ENABLED } from "@/utils/featureFlags";
+import useSettingsStore from "@/store/settings";
+import { CHARACTER_DATA } from "@/utils/characterMapping";
 import AppCard from "../../components/AppCard";
 import SectionHeader from "../../components/SectionHeader";
 import BikeCard from "../../components/BikeCard";
@@ -21,6 +23,29 @@ import QuickActionCard from "../../components/QuickActionCard";
 // Demo bikes use small numeric ids like "1"; real bikes use UUIDs.
 const UUID_REGEX =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+const DISCIPLINE_PORTRAIT = {
+  Trail: {
+    name: "The Trail Navigator",
+    avatar: CHARACTER_DATA["Berm Wizard"].avatar,
+  },
+  Enduro: {
+    name: "The Enduro Crusher",
+    avatar: CHARACTER_DATA["Drop Doctor"].avatar,
+  },
+  XC: {
+    name: "The XC Racer",
+    avatar: CHARACTER_DATA["Smooth Operator"].avatar,
+  },
+  "DH/Bike Park": {
+    name: "The Downhill Destroyer",
+    avatar: CHARACTER_DATA["Air Captain"].avatar,
+  },
+  "Gravel/Road": {
+    name: "The Gravel Grinder",
+    avatar: CHARACTER_DATA["Tech Tamer"].avatar,
+  },
+};
 
 export default function HomeScreen() {
   const insets = useSafeAreaInsets();
@@ -31,6 +56,10 @@ export default function HomeScreen() {
     (s) => s.maintenanceEventsByBikeId,
   );
   const rides = useRidesStore((s) => s.rides);
+  const primaryDiscipline = useSettingsStore(
+    (s) => s.settings?.userProfile?.primaryDiscipline,
+  );
+  const savedCharacterName = useSettingsStore((s) => s.settings?.characterName);
 
   // Get user's current character data
   const userCharacter = useUserCharacter();
@@ -40,11 +69,16 @@ export default function HomeScreen() {
   // Build dynamic character display data
   const displayCharacter = useMemo(() => {
     if (!hasCharacter || !characterData) {
-      // New user - show placeholder
+      const portrait =
+        DISCIPLINE_PORTRAIT[primaryDiscipline] || DISCIPLINE_PORTRAIT.Trail;
+      const named =
+        typeof savedCharacterName === "string" && savedCharacterName.trim()
+          ? savedCharacterName.trim()
+          : portrait.name;
       return {
-        characterName: "Your Rider Character",
-        subtitle: "Unlock your character by analyzing your first ride",
-        avatar: null,
+        characterName: named,
+        subtitle: "Your rider profile",
+        avatar: portrait.avatar,
         overall: 0,
         isPlaceholder: true,
       };
@@ -58,7 +92,13 @@ export default function HomeScreen() {
       overall: userCharacter.overallScore || riderCharacter.overall,
       isPlaceholder: false,
     };
-  }, [hasCharacter, characterData, userCharacter.overallScore]);
+  }, [
+    hasCharacter,
+    characterData,
+    primaryDiscipline,
+    savedCharacterName,
+    userCharacter.overallScore,
+  ]);
 
   const bikesWithQuestUI = useMemo(() => {
     const list = Array.isArray(bikes) ? bikes : [];
@@ -227,7 +267,11 @@ export default function HomeScreen() {
           <View style={styles.avatarRing}>
             <View style={styles.avatarRingInner}>
               <Image
-                source={displayCharacter.avatar}
+                source={
+                  displayCharacter.avatar
+                    ? { uri: displayCharacter.avatar }
+                    : undefined
+                }
                 style={styles.avatar}
                 contentFit="cover"
               />

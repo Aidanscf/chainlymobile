@@ -43,8 +43,11 @@ export function MicroAdjustmentModal({
           >
             <Text style={styles.microBoxTitle}>Try this</Text>
             <View style={{ height: spacing.sm }} />
-            {(microItem?.changes || []).map((c) => (
-              <View key={c.label} style={styles.microChangeRow}>
+            {(microItem?.changes || []).map((c, index) => (
+              <View
+                key={`${c.appliesTo || "both"}-${c.label}-${index}`}
+                style={styles.microChangeRow}
+              >
                 <View style={styles.microBullet} />
                 <Text style={styles.microChangeText}>{c.label}</Text>
                 <View style={styles.microAppliesPill}>

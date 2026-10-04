@@ -2,7 +2,7 @@ import React, { useCallback, useMemo } from "react";
 import { View, Text, StyleSheet, ScrollView } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { StatusBar } from "expo-status-bar";
-import { useRouter } from "expo-router";
+import { useRouter, useFocusEffect } from "expo-router";
 import * as Haptics from "expo-haptics";
 import { ChevronRight, Wrench } from "lucide-react-native";
 import { colors, spacing, typography, radius } from "@/theme/index";
@@ -18,6 +18,15 @@ export default function AIScreen() {
   const diagnosisHistory = useChainlyStore((s) => s.diagnosisHistory);
   const setCurrentDiagnosis = useChainlyStore((s) => s.setCurrentDiagnosis);
   const clearDiagnosisHistory = useChainlyStore((s) => s.clearDiagnosisHistory);
+  const hydrateDiagnosisHistory = useChainlyStore(
+    (s) => s.hydrateDiagnosisHistory,
+  );
+
+  useFocusEffect(
+    useCallback(() => {
+      hydrateDiagnosisHistory?.();
+    }, [hydrateDiagnosisHistory]),
+  );
 
   const aiFeatures = [
     {

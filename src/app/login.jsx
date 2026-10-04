@@ -6,7 +6,6 @@ import {
   Platform,
   ActivityIndicator,
   TextInput,
-  Alert,
   ScrollView,
 } from "react-native";
 import { StatusBar } from "expo-status-bar";
@@ -45,6 +44,7 @@ export default function LoginScreen() {
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [formError, setFormError] = useState("");
 
   const hydrated = useSettingsStore((s) => s.hydrated);
   const hydrate = useSettingsStore((s) => s.hydrate);
@@ -118,13 +118,13 @@ export default function LoginScreen() {
     const pw = String(password || "");
 
     if (!isValidEmail(trimmedEmail) || pw.length < 6) {
-      Alert.alert(
-        "Check your details",
-        "Enter a valid email and password (min 6 characters).",
+      setFormError(
+        "Enter a valid email and a password of at least 6 characters.",
       );
       return;
     }
 
+    setFormError("");
     setSubmitting(true);
     try {
       // Expected server response shape:
@@ -149,13 +149,26 @@ export default function LoginScreen() {
       await handleAuthCallback({ jwt, user: nextUser, refreshToken });
     } catch (e) {
       console.error(e);
-      const detail = e?.message ? String(e.message) : "";
-      Alert.alert(
-        "Login failed",
-        detail.includes("Failed to fetch") || detail.includes("Network error")
-          ? "Couldn’t reach the server. Login is failing on chainly.club (database auth). Please try again after the backend is fixed."
-          : detail || "Couldn’t sign in. Please check your email and password.",
-      );
+      const detail = e?.detail ? String(e.detail) : "";
+      const message = e?.message ? String(e.message) : "";
+      const offline =
+        message.includes("Failed to fetch") ||
+        message.includes("Network error");
+      const wrongCredentials =
+        e?.status === 401 || /invalid email or password/i.test(detail);
+      if (offline) {
+        setFormError(
+          "Can’t reach Chainly right now. Check your connection and try again.",
+        );
+      } else if (wrongCredentials) {
+        setFormError(
+          "That email or password doesn’t match. Check both and try again.",
+        );
+      } else {
+        setFormError(
+          detail || "Couldn’t sign in just now. Please try again.",
+        );
+      }
     } finally {
       setSubmitting(false);
     }
@@ -242,7 +255,10 @@ export default function LoginScreen() {
             <Mail size={18} color={colors.textSecondary} />
             <TextInput
               value={email}
-              onChangeText={setEmail}
+              onChangeText={(value) => {
+                setEmail(value);
+                if (formError) setFormError("");
+              }}
               placeholder="name@email.com"
               placeholderTextColor={colors.textTertiary}
               style={styles.input}
@@ -259,7 +275,10 @@ export default function LoginScreen() {
             <Lock size={18} color={colors.textSecondary} />
             <TextInput
               value={password}
-              onChangeText={setPassword}
+              onChangeText={(value) => {
+                setPassword(value);
+                if (formError) setFormError("");
+              }}
               placeholder="Your password"
               placeholderTextColor={colors.textTertiary}
               style={styles.input}
@@ -268,10 +287,12 @@ export default function LoginScreen() {
             />
           </View>
 
-          <Text style={styles.helper}>
-            If your server uses a different endpoint, update the request in this
-            screen.
-          </Text>
+          {formError ? (
+            <View style={styles.errorBox}>
+              <Text style={styles.errorTitle}>Couldn’t sign in</Text>
+              <Text style={styles.errorText}>{formError}</Text>
+            </View>
+          ) : null}
         </AppCard>
 
         <View style={{ height: spacing.xl }} />
@@ -411,6 +432,26 @@ const styles = StyleSheet.create({
     lineHeight: 16,
     fontFamily: typography.fontFamily.semibold,
     color: colors.textSecondary,
+  },
+  errorBox: {
+    marginTop: spacing.lg,
+    padding: spacing.md,
+    borderRadius: radius.lg,
+    backgroundColor: "#FFF1F0",
+    borderWidth: 1,
+    borderColor: "#FFD0CD",
+  },
+  errorTitle: {
+    fontSize: 14,
+    fontFamily: typography.fontFamily.black,
+    color: colors.danger,
+  },
+  errorText: {
+    marginTop: 4,
+    fontSize: 13,
+    lineHeight: 18,
+    fontFamily: typography.fontFamily.semibold,
+    color: colors.textPrimary,
   },
   loginButton: {
     marginBottom: spacing.lg,

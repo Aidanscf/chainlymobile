@@ -20,6 +20,7 @@ import AppButton from "@/components/AppButton";
 import { colors, spacing, radius, typography, shadows } from "@/theme/index";
 import { apiFetch } from "@/services/apiClient";
 import { useAuthStore } from "@/utils/auth/store";
+import useSettingsStore from "@/store/settings";
 
 function isValidEmail(email) {
   const e = String(email || "").trim();
@@ -33,6 +34,9 @@ export default function SignupScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const handleAuthCallback = useAuthStore((s) => s.handleAuthCallback);
+  const onboardingComplete = useSettingsStore(
+    (s) => !!s.settings?.onboarding?.onboardingComplete,
+  );
 
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -92,7 +96,13 @@ export default function SignupScreen() {
       }
 
       await handleAuthCallback({ jwt, user: nextUser, refreshToken });
-      router.replace("/(tabs)");
+      if (onboardingComplete) {
+        router.replace("/(tabs)");
+      } else if (router.canGoBack()) {
+        router.back();
+      } else {
+        router.replace("/onboarding/account");
+      }
     } catch (e) {
       console.error(e);
       const detail = e?.message ? String(e.message) : "";
@@ -105,7 +115,7 @@ export default function SignupScreen() {
     } finally {
       setSubmitting(false);
     }
-  }, [canContinue, email, handleAuthCallback, name, password, router]);
+  }, [canContinue, email, handleAuthCallback, name, onboardingComplete, password, router]);
 
   return (
     <ScreenContainer safeTop safeBottom style={styles.container}>

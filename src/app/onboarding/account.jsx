@@ -44,6 +44,14 @@ import OnboardingBackground from "@/components/onboarding/OnboardingBackground.j
 import OnboardingTopBar from "@/components/onboarding/OnboardingTopBar.jsx";
 import StickyCTA from "@/components/onboarding/StickyCTA.jsx";
 
+async function saveProfileThenBuild(payload) {
+  await apiFetch("/api/profile", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+  return apiFetch("/api/profile/build", { method: "POST" });
+}
+
 function isValidEmail(email) {
   const e = String(email || "").trim();
   if (!e) return false;
@@ -182,12 +190,14 @@ export default function OnboardingAccountScreen() {
           profile: { email: trimmed, name: settings?.profile?.name || "Rider" },
         };
 
-        await apiFetch("/api/profile", {
-          method: "POST",
-          body: JSON.stringify(payload),
-        });
+        const built = await saveProfileThenBuild(payload);
+        const characterName =
+          typeof built?.characterName === "string" ? built.characterName : "";
+        if (characterName) {
+          await update("characterName", characterName);
+        }
       } catch (e) {
-        console.error(e);
+        console.error(e?.detail || e);
       }
 
       try {
@@ -218,8 +228,8 @@ export default function OnboardingAccountScreen() {
 
     pendingAuthAdvanceRef.current = true;
     useAuthStore.getState().clearError();
-    useAuthStore.getState().loginWithWebView({ mode: "signup" });
-  }, []);
+    router.push("/signup");
+  }, [router]);
 
   const onLogin = useCallback(async () => {
     try {
@@ -272,12 +282,14 @@ export default function OnboardingAccountScreen() {
             },
           };
 
-          await apiFetch("/api/profile", {
-            method: "POST",
-            body: JSON.stringify(payload),
-          });
+          const built = await saveProfileThenBuild(payload);
+          const characterName =
+            typeof built?.characterName === "string" ? built.characterName : "";
+          if (characterName) {
+            await update("characterName", characterName);
+          }
         } catch (e) {
-          console.error(e);
+          console.error(e?.detail || e);
         }
 
         goNext();
